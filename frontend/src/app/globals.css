@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --night: #0A0F1E;
+  --card: #111827;
+  --volt: #22C55E;
+}
+
+html, body {
+  background-color: var(--night);
+  color: #F9FAFB;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn-volt {
+  @apply bg-volt text-night font-semibold px-6 py-3 rounded-lg hover:bg-volt-dim transition-colors duration-150;
+}
+
+.btn-outline {
+  @apply border border-white/20 text-white font-medium px-6 py-3 rounded-lg hover:border-white/50 hover:bg-white/5 transition-all duration-150;
+}
+
+.card {
+  @apply bg-card border border-border rounded-xl p-6;
+}
+
+.input {
+  @apply w-full bg-night border border-border rounded-lg px-4 py-2.5 text-white placeholder:text-ash focus:outline-none focus:border-volt transition-colors;
+}
+
+.label {
+  @apply block text-sm font-medium text-ash mb-1.5;
+}
+
+.badge-green  { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/40 text-green-400; }
+.badge-yellow { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-900/40 text-yellow-400; }
+.badge-blue   { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-900/40 text-blue-400; }
+.badge-gray   { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400; }
