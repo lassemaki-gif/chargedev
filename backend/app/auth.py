@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import bcrypt as _bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,16 +12,15 @@ from .config import settings
 from .db import get_session
 from .models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return _bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def create_access_token(user_id: int, role: str) -> str:
@@ -34,7 +33,7 @@ def create_access_token(user_id: int, role: str) -> str:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer),  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),
 ) -> User:
     if not credentials:

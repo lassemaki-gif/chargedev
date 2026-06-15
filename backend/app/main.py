@@ -5,6 +5,7 @@ import random
 import string
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -123,7 +124,7 @@ async def me(current_user: User = Depends(get_current_user)):
 
 @app.get("/api/listings", response_model=list[ListingOut])
 async def list_listings(
-    city: str | None = None,
+    city: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
     q = select(Listing).where(Listing.is_available == True)
