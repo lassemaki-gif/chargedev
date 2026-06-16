@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
+import resend
 import stripe as stripe_lib
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +38,40 @@ async def lifespan(_: FastAPI):
 
 
 stripe_lib.api_key = settings.stripe_secret_key
+resend.api_key = settings.resend_api_key
 logger = logging.getLogger(__name__)
+
+
+async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, listing: Listing) -> None:
+    if not settings.resend_api_key:
+        logger.warning("RESEND_API_KEY not set — skipping email")
+        return
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": [buyer_email],
+            "subject": f"Your ChargedEV PIN — {listing.title}",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#22C55E;margin-bottom:4px">Your charging PIN is ready ⚡</h2>
+              <p style="color:#555">Payment confirmed. Show this PIN to the host to start your session.</p>
+              <div style="background:#0A0F1E;border-radius:12px;padding:32px;text-align:center;margin:24px 0">
+                <p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px">Session PIN</p>
+                <p style="color:#22C55E;font-size:48px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
+              </div>
+              <table style="width:100%;font-size:14px;color:#555;border-collapse:collapse">
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Charger</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111">{listing.title}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Address</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{listing.address}, {listing.city}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Package</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{booking.package_kwh} kWh</td></tr>
+                <tr><td style="padding:6px 0">Total paid</td><td style="padding:6px 0;text-align:right;font-weight:700;color:#111">€{booking.total_eur:.2f}</td></tr>
+              </table>
+              <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
+            </div>
+            """,
+        })
+        logger.info("PIN email sent to %s", buyer_email)
+    except Exception as exc:
+        logger.error("Failed to send PIN email: %s", exc)
 
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
 
@@ -508,6 +542,10 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                     b.pin_code = _gen_pin()
                     await session.commit()
                     logger.info("Booking %d confirmed PIN=%s", booking_id, b.pin_code)
+                    buyer = await session.get(User, b.buyer_id)
+                    listing = await session.get(Listing, b.listing_id)
+                    if buyer and listing:
+                        await send_pin_email(buyer.email, buyer.full_name, b, listing)
                 else:
                     logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
             else:
@@ -517,6 +555,44 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         return JSONResponse({"received": True, "error": str(exc)})
 
     return JSONResponse({"received": True})
+
+
+@app.get("/api/checkout/verify/{session_id}")
+async def verify_checkout(
+    session_id: str,
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Called by success page — verifies payment with Stripe and confirms booking immediately."""
+    b = (await session.execute(
+        select(Booking).where(Booking.stripe_session_id == session_id)
+    )).scalar_one_or_none()
+
+    if not b or b.buyer_id != current_user.id:
+        raise HTTPException(404, "Booking not found")
+
+    # Already confirmed — just return it
+    if b.status == BookingStatus.confirmed and b.pin_code:
+        b.listing = await session.get(Listing, b.listing_id)
+        b.buyer = current_user
+        return _booking_out(b, show_pin=True)
+
+    # Ask Stripe directly — don't wait for webhook
+    try:
+        stripe_session = stripe_lib.checkout.Session.retrieve(session_id)
+        if stripe_session.payment_status == "paid" and b.status == BookingStatus.pending:
+            b.status = BookingStatus.confirmed
+            b.pin_code = _gen_pin()
+            await session.commit()
+            logger.info("Booking %d confirmed via verify endpoint, PIN=%s", b.id, b.pin_code)
+            listing = await session.get(Listing, b.listing_id)
+            await send_pin_email(current_user.email, current_user.full_name, b, listing)
+    except Exception as exc:
+        logger.error("Stripe verify error: %s", exc)
+
+    b.listing = await session.get(Listing, b.listing_id)
+    b.buyer = current_user
+    return _booking_out(b, show_pin=True)
 
 
 @app.get("/api/bookings/by-session/{session_id}")

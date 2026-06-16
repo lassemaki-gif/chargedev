@@ -13,19 +13,30 @@ function SuccessContent() {
 
   useEffect(() => {
     if (!sessionId) { router.push("/charge"); return; }
-    let attempts = 0;
-    const poll = async () => {
+    const confirm = async () => {
       try {
-        const b = await api.bookingBySession(sessionId);
+        // verify endpoint confirms payment with Stripe directly — no webhook needed
+        const b = await api.verifyCheckout(sessionId);
         if (b.pin_code) { setBooking(b); return; }
-        if (++attempts < 10) setTimeout(poll, 1500);
-        else setError("Payment confirmed but PIN is still being generated. Check your bookings shortly.");
-      } catch {
-        if (++attempts < 10) setTimeout(poll, 1500);
-        else setError("Could not load booking. Please check your bookings page.");
+        // PIN not yet available — fall back to polling
+        let attempts = 0;
+        const poll = async () => {
+          try {
+            const b2 = await api.bookingBySession(sessionId);
+            if (b2.pin_code) { setBooking(b2); return; }
+            if (++attempts < 6) setTimeout(poll, 2000);
+            else setError("Payment confirmed but PIN generation is taking longer than expected. Check your email or bookings shortly.");
+          } catch {
+            if (++attempts < 6) setTimeout(poll, 2000);
+            else setError("Could not load booking. Please check your bookings page.");
+          }
+        };
+        poll();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not verify payment.");
       }
     };
-    poll();
+    confirm();
   }, [sessionId, router]);
 
   if (!booking && !error) return (

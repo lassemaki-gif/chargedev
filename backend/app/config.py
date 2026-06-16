@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     frontend_url: str = "https://chargedev.io"
+    resend_api_key: str = ""
+    email_from: str = "ChargedEV <noreply@chargedev.io>"
 
     allowed_origins: list[str] = [
         "http://localhost:3000",

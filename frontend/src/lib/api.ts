@@ -51,6 +51,8 @@ export const api = {
   myBookings: () => req<Booking[]>("GET", "/api/buyer/bookings"),
   bookingBySession: (sessionId: string) =>
     req<Booking>("GET", `/api/bookings/by-session/${sessionId}`),
+  verifyCheckout: (sessionId: string) =>
+    req<Booking>("GET", `/api/checkout/verify/${sessionId}`),
 
   // Admin
   adminStats: () => req<PlatformStats>("GET", "/api/admin/stats"),
