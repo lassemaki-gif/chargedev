@@ -14,7 +14,7 @@ export default function Landing() {
       <nav className="border-b border-border px-6 lg:px-16 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-volt font-mono text-xl">⚡</span>
-          <span className="font-semibold text-white text-lg tracking-tight">ChargeDev</span>
+          <span className="font-semibold text-white text-lg tracking-tight">ChargedEV</span>
         </div>
         <div className="flex items-center gap-3">
           <Link href="/charge" className="text-ash hover:text-white text-sm font-medium transition-colors">Find a charger</Link>
@@ -38,7 +38,7 @@ export default function Landing() {
             Your income.
           </h1>
           <p className="text-xl text-ash max-w-xl mb-10 leading-relaxed">
-            Got a home charger or three-phase socket? List it on ChargeDev and earn money every time an EV driver charges up. Available worldwide.
+            Got a home charger or three-phase socket? List it on ChargedEV and earn money every time an EV driver charges up. Available worldwide.
           </p>
           <div className="flex flex-wrap gap-4">
             <Link href="/sell" className="btn-volt text-base">Start hosting →</Link>
@@ -166,7 +166,7 @@ export default function Landing() {
       <footer className="border-t border-border px-6 lg:px-16 py-8 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-volt font-mono">⚡</span>
-          <span className="text-ash text-sm">ChargeDev</span>
+          <span className="text-ash text-sm">ChargedEV</span>
         </div>
         <div className="flex gap-6 text-ash text-sm">
           <Link href="/sell" className="hover:text-white transition-colors">Host</Link>

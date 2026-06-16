@@ -93,7 +93,7 @@ export default function ChargerDetail() {
       <div className="flex items-center justify-center min-h-[calc(100vh-64px)] px-6">
         <div className="card max-w-md w-full">
           <h2 className="text-xl font-bold text-white mb-1">{mode === "login" ? "Sign in to book" : "Create account to book"}</h2>
-          <p className="text-ash text-sm mb-5">You need a ChargeDev account to complete your booking.</p>
+          <p className="text-ash text-sm mb-5">You need a ChargedEV account to complete your booking.</p>
           {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">{error}</div>}
           <form onSubmit={handleAuth} className="space-y-4">
             {mode === "register" && (

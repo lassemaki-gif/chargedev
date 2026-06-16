@@ -68,7 +68,7 @@ export default function AdminDashboard() {
         <div className="text-center mb-6">
           <div className="text-3xl mb-2">🔐</div>
           <h1 className="text-xl font-bold text-white">Admin access</h1>
-          <p className="text-ash text-sm mt-1">ChargeDev platform administration</p>
+          <p className="text-ash text-sm mt-1">ChargedEV platform administration</p>
         </div>
         {loginError && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">{loginError}</div>}
         <form onSubmit={adminLogin} className="space-y-4">

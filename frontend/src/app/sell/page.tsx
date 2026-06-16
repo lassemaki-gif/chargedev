@@ -39,13 +39,13 @@ export default function SellLanding() {
         <p className="text-volt text-sm font-semibold uppercase tracking-widest mb-4">For hosts</p>
         <h1 className="text-5xl font-bold text-white mb-6">Turn your charger into income</h1>
         <p className="text-ash text-lg leading-relaxed mb-10">
-          If you have a three-phase socket or an existing EV charger at home, you can list it on ChargeDev
+          If you have a three-phase socket or an existing EV charger at home, you can list it on ChargedEV
           and earn money every time a driver books a session. You set your price, your availability — we handle the rest.
         </p>
         <div className="grid sm:grid-cols-3 gap-6 mb-12">
           {[
             { icon: "⚡", t: "Any 3-phase outlet", b: "Standard home three-phase socket is enough to get started." },
-            { icon: "💰", t: "You keep 80%", b: "ChargeDev takes a 20% platform fee. The rest is yours." },
+            { icon: "💰", t: "You keep 80%", b: "ChargedEV takes a 20% platform fee. The rest is yours." },
             { icon: "🔒", t: "Secure PIN access", b: "Each booking gets a unique PIN. You stay in control." },
           ].map((f) => (
             <div key={f.t} className="card">

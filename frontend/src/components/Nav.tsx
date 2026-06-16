@@ -12,7 +12,7 @@ export function Nav() {
     <nav className="border-b border-border px-6 lg:px-10 h-16 flex items-center justify-between">
       <Link href="/" className="flex items-center gap-2">
         <span className="text-volt font-mono font-medium text-lg">⚡</span>
-        <span className="font-semibold text-white tracking-tight">ChargeDev</span>
+        <span className="font-semibold text-white tracking-tight">ChargedEV</span>
       </Link>
       <div className="flex items-center gap-1">
         <Link
