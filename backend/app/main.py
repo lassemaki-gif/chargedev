@@ -1,4 +1,4 @@
-"""Latauslasse API — EV charging marketplace backend."""
+"""ChargeDev API — EV charging marketplace backend."""
 from __future__ import annotations
 
 import random
@@ -33,7 +33,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Latauslasse API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="ChargeDev API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

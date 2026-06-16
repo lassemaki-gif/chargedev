@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Latauslasse — EV charging marketplace",
-  description: "Rent out your home EV charger and earn money. Or find a nearby charger for your electric car.",
+  title: "ChargeDev — EV charging marketplace",
+  description: "Rent out your home EV charger and earn money. Or find a nearby charger for your electric car — chargedev.io",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
