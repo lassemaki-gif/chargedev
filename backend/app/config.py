@@ -12,7 +12,12 @@ class Settings(BaseSettings):
     platform_fee_pct: float = 0.20  # 20%
     default_price_per_kwh: float = 0.25  # EUR
 
-    allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+    allowed_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://chargedev.io",
+        "https://www.chargedev.io",
+    ]
 
 
 settings = Settings()
