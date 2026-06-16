@@ -1,6 +1,7 @@
 """ChargedEV API — EV charging marketplace backend."""
 from __future__ import annotations
 
+import logging
 import random
 import string
 from contextlib import asynccontextmanager
@@ -36,6 +37,7 @@ async def lifespan(_: FastAPI):
 
 
 stripe_lib.api_key = settings.stripe_secret_key
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
 
@@ -458,17 +460,27 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         event = stripe_lib.Webhook.construct_event(
             payload, sig, settings.stripe_webhook_secret
         )
-    except stripe_lib.errors.SignatureVerificationError:
-        raise HTTPException(400, "Invalid signature")
+    except Exception as exc:
+        logger.error("Webhook signature verification failed: %s", exc)
+        raise HTTPException(400, f"Webhook error: {exc}")
 
-    if event["type"] == "checkout.session.completed":
-        stripe_session = event["data"]["object"]
-        booking_id = int(stripe_session["metadata"].get("booking_id", 0))
-        b = await session.get(Booking, booking_id)
-        if b and b.status == BookingStatus.pending:
-            b.status = BookingStatus.confirmed
-            b.pin_code = _gen_pin()
-            await session.commit()
+    try:
+        if event["type"] == "checkout.session.completed":
+            stripe_session = event["data"]["object"]
+            booking_id = int(stripe_session.get("metadata", {}).get("booking_id", 0))
+            if booking_id:
+                b = await session.get(Booking, booking_id)
+                if b and b.status == BookingStatus.pending:
+                    b.status = BookingStatus.confirmed
+                    b.pin_code = _gen_pin()
+                    await session.commit()
+                    logger.info("Booking %d confirmed, PIN generated.", booking_id)
+                else:
+                    logger.warning("Booking %d not found or already confirmed.", booking_id)
+    except Exception as exc:
+        logger.error("Webhook handler error: %s", exc)
+        # Return 200 so Stripe doesn't keep retrying a handler bug
+        return JSONResponse({"received": True, "error": str(exc)})
 
     return JSONResponse({"received": True})
 
