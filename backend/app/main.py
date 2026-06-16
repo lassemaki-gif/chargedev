@@ -231,10 +231,8 @@ async def seller_bookings(
     )).scalars().all()
     result = []
     for b in rows:
-        if not b.listing:
-            b.listing = await session.get(Listing, b.listing_id)
-        if not b.buyer:
-            b.buyer = await session.get(User, b.buyer_id)
+        b.listing = await session.get(Listing, b.listing_id)
+        b.buyer = await session.get(User, b.buyer_id)
         result.append(_booking_out(b, show_pin=True))
     return result
 
