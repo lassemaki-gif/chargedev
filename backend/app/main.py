@@ -285,7 +285,7 @@ async def create_booking(
 
 @app.get("/api/buyer/bookings", response_model=list[BookingOut])
 async def buyer_bookings(
-    current_user: User = Depends(require_role("buyer", "admin")),
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
     rows = (await session.execute(
@@ -395,7 +395,7 @@ async def toggle_user(
 @app.post("/api/checkout")
 async def create_checkout(
     body: BookingCreate,
-    current_user: User = Depends(require_role("buyer", "admin")),
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
     if body.package_kwh not in PACKAGES_KWH:
@@ -476,7 +476,7 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
 @app.get("/api/bookings/by-session/{session_id}")
 async def booking_by_session(
     session_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
     b = (await session.execute(
