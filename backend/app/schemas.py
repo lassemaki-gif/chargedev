@@ -47,7 +47,7 @@ class ListingCreate(BaseModel):
     country: str = "Finland"
     charger_type: str = "Type 2"
     max_power_kw: float = Field(default=11.0, ge=1.4, le=350)
-    price_per_kwh: float = Field(default=0.20, ge=0.05, le=2.00)
+    price_per_kwh: float = Field(default=0.25, ge=0.05, le=2.00)
     instructions: Optional[str] = None
 
 

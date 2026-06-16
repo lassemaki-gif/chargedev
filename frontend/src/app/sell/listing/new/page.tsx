@@ -16,7 +16,7 @@ export default function NewListing() {
     country: "Finland",
     charger_type: "Type 2",
     max_power_kw: 11,
-    price_per_kwh: 0.20,
+    price_per_kwh: 0.25,
     instructions: "",
   });
   const [error, setError] = useState<string | null>(null);

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
 
     platform_fee_pct: float = 0.20  # 20%
-    default_price_per_kwh: float = 0.20  # EUR
+    default_price_per_kwh: float = 0.25  # EUR
 
     allowed_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 

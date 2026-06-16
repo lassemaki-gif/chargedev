@@ -65,7 +65,7 @@ class Listing(Base):
     lng: Mapped[Optional[float]] = mapped_column(Float)
     charger_type: Mapped[ChargerType] = mapped_column(Enum(ChargerType), default=ChargerType.type2)
     max_power_kw: Mapped[float] = mapped_column(Float, default=11.0)
-    price_per_kwh: Mapped[float] = mapped_column(Float, default=0.20)
+    price_per_kwh: Mapped[float] = mapped_column(Float, default=0.25)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     instructions: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
