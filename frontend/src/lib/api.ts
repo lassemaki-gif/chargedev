@@ -46,9 +46,11 @@ export const api = {
   completeBooking: (id: number) => req<{ status: string }>("PUT", `/api/seller/bookings/${id}/complete`),
 
   // Buyer
-  book: (body: { listing_id: number; package_kwh: number; notes?: string }) =>
-    req<Booking>("POST", "/api/bookings", body),
+  checkout: (body: { listing_id: number; package_kwh: number; notes?: string }) =>
+    req<{ checkout_url: string; booking_id: number }>("POST", "/api/checkout", body),
   myBookings: () => req<Booking[]>("GET", "/api/buyer/bookings"),
+  bookingBySession: (sessionId: string) =>
+    req<Booking>("GET", `/api/bookings/by-session/${sessionId}`),
 
   // Admin
   adminStats: () => req<PlatformStats>("GET", "/api/admin/stats"),

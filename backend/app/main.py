@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+import stripe as stripe_lib
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +34,8 @@ async def lifespan(_: FastAPI):
     await init_db()
     yield
 
+
+stripe_lib.api_key = settings.stripe_secret_key
 
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
 
@@ -384,3 +388,102 @@ async def toggle_user(
     user.is_active = not user.is_active
     await session.commit()
     return {"is_active": user.is_active}
+
+
+# ── Stripe checkout ───────────────────────────────────────────────────────────
+
+@app.post("/api/checkout")
+async def create_checkout(
+    body: BookingCreate,
+    current_user: User = Depends(require_role("buyer", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    if body.package_kwh not in PACKAGES_KWH:
+        raise HTTPException(422, f"Package must be one of {PACKAGES_KWH} kWh")
+    listing = await session.get(Listing, body.listing_id)
+    if not listing or not listing.is_available:
+        raise HTTPException(404, "Listing not found or unavailable")
+
+    total = round(body.package_kwh * listing.price_per_kwh, 2)
+    fee = round(total * settings.platform_fee_pct, 2)
+    earnings = round(total - fee, 2)
+
+    # Create pending booking (no PIN yet — assigned after payment)
+    booking = Booking(
+        listing_id=listing.id,
+        buyer_id=current_user.id,
+        package_kwh=body.package_kwh,
+        price_per_kwh=listing.price_per_kwh,
+        total_eur=total,
+        seller_earnings_eur=earnings,
+        platform_fee_eur=fee,
+        status=BookingStatus.pending,
+        notes=body.notes,
+    )
+    session.add(booking)
+    await session.flush()  # get booking.id before commit
+
+    # Create Stripe Checkout session
+    checkout = stripe_lib.checkout.Session.create(
+        payment_method_types=["card"],
+        mode="payment",
+        line_items=[{
+            "price_data": {
+                "currency": "eur",
+                "unit_amount": int(total * 100),  # cents
+                "product_data": {
+                    "name": f"{body.package_kwh} kWh — {listing.title}",
+                    "description": f"{listing.address}, {listing.city}",
+                },
+            },
+            "quantity": 1,
+        }],
+        metadata={"booking_id": str(booking.id)},
+        success_url=f"{settings.frontend_url}/charge/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{settings.frontend_url}/charge/{listing.id}?cancelled=1",
+    )
+
+    booking.stripe_session_id = checkout.id
+    await session.commit()
+
+    return {"checkout_url": checkout.url, "booking_id": booking.id}
+
+
+@app.post("/api/webhooks/stripe")
+async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    try:
+        event = stripe_lib.Webhook.construct_event(
+            payload, sig, settings.stripe_webhook_secret
+        )
+    except stripe_lib.errors.SignatureVerificationError:
+        raise HTTPException(400, "Invalid signature")
+
+    if event["type"] == "checkout.session.completed":
+        stripe_session = event["data"]["object"]
+        booking_id = int(stripe_session["metadata"].get("booking_id", 0))
+        b = await session.get(Booking, booking_id)
+        if b and b.status == BookingStatus.pending:
+            b.status = BookingStatus.confirmed
+            b.pin_code = _gen_pin()
+            await session.commit()
+
+    return JSONResponse({"received": True})
+
+
+@app.get("/api/bookings/by-session/{session_id}")
+async def booking_by_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    b = (await session.execute(
+        select(Booking).where(Booking.stripe_session_id == session_id)
+    )).scalar_one_or_none()
+    if not b or b.buyer_id != current_user.id:
+        raise HTTPException(404, "Booking not found")
+    b.listing = await session.get(Listing, b.listing_id)
+    b.buyer = current_user
+    return _booking_out(b, show_pin=True)

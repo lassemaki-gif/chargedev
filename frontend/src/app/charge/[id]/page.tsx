@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { api, Listing, Booking, PACKAGES, saveToken, saveRole } from "@/lib/api";
+import { api, Listing, PACKAGES, saveToken, saveRole } from "@/lib/api";
 import { useRouter, useParams } from "next/navigation";
 
 export default function ChargerDetail() {
@@ -9,7 +9,6 @@ export default function ChargerDetail() {
   const { id } = useParams<{ id: string }>();
   const [listing, setListing] = useState<Listing | null>(null);
   const [selectedPkg, setSelectedPkg] = useState<number | null>(null);
-  const [booking, setBooking] = useState<Booking | null>(null);
   const [mode, setMode] = useState<"view" | "login" | "register">("view");
   const [authForm, setAuthForm] = useState({ email: "", password: "", full_name: "" });
   const [loading, setLoading] = useState(false);
@@ -46,8 +45,12 @@ export default function ChargerDetail() {
     setError(null);
     setLoading(true);
     try {
-      const b = await api.book({ listing_id: listing.id, package_kwh: selectedPkg, notes });
-      setBooking(b);
+      const { checkout_url } = await api.checkout({
+        listing_id: listing.id,
+        package_kwh: selectedPkg,
+        notes,
+      });
+      window.location.href = checkout_url;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("401") || msg.includes("authenticated")) {
@@ -62,30 +65,6 @@ export default function ChargerDetail() {
 
   if (!listing) return <div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>;
 
-  if (booking) return (
-    <div>
-      <Nav />
-      <div className="flex items-center justify-center min-h-[calc(100vh-64px)] px-6">
-        <div className="card max-w-md w-full text-center">
-          <div className="text-5xl mb-4">✅</div>
-          <h2 className="text-2xl font-bold text-white mb-2">Booking confirmed!</h2>
-          <p className="text-ash text-sm mb-6">Show this PIN to the host or use it to unlock the socket.</p>
-          <div className="bg-night rounded-xl p-6 mb-6">
-            <p className="text-ash text-xs uppercase tracking-widest mb-2">Your session PIN</p>
-            <p className="font-mono text-5xl font-bold text-volt tracking-[0.2em]">{booking.pin_code}</p>
-          </div>
-          <div className="text-left space-y-2 text-sm text-ash mb-6">
-            <div className="flex justify-between"><span>Package</span><span className="text-white">{booking.package_kwh} kWh</span></div>
-            <div className="flex justify-between"><span>Location</span><span className="text-white">{booking.listing_address}</span></div>
-            <div className="flex justify-between"><span>Total paid</span><span className="text-white font-medium">€{booking.total_eur.toFixed(2)}</span></div>
-          </div>
-          <button onClick={() => router.push("/charge")} className="btn-outline w-full text-center text-sm">
-            Back to listings
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   if (mode === "login" || mode === "register") return (
     <div>
