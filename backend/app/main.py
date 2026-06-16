@@ -50,6 +50,17 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    origin = request.headers.get("origin", "")
+    logger.error("Unhandled error on %s: %s: %s", request.url.path, type(exc).__name__, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+        headers={"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true"},
+    )
+
+
 def _gen_pin() -> str:
     return "".join(random.choices(string.digits, k=6))
 
