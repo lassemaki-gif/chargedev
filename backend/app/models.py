@@ -29,6 +29,7 @@ class BookingStatus(str, PyEnum):
 
 
 class ChargerType(str, PyEnum):
+    three_phase = "3-phase"
     type2 = "Type 2"
     ccs = "CCS"
     chademo = "CHAdeMO"
