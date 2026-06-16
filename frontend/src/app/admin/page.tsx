@@ -196,19 +196,45 @@ export default function AdminDashboard() {
             {bookings.map((b) => (
               <div key={b.id} className="card">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="font-medium text-white">{b.listing_title}</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-mono text-ash text-xs">#{b.id}</span>
+                      <span className="font-medium text-white">{b.listing_title}</span>
+                    </div>
                     <div className="text-ash text-sm">{b.listing_address}</div>
                     <div className="text-ash text-sm mt-0.5">
                       Buyer: {b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)}
                       <span className="text-ash/60"> (platform: €{b.platform_fee_eur.toFixed(2)} · seller: €{b.seller_earnings_eur.toFixed(2)})</span>
                     </div>
-                    <div className="mt-2 flex gap-2 items-center">
+                    <div className="mt-2 flex gap-2 items-center flex-wrap">
                       {statusBadge(b.status)}
-                      <span className="font-mono text-volt text-xs bg-volt/10 px-2 py-0.5 rounded">PIN: {b.pin_code}</span>
+                      {b.pin_code
+                        ? <span className="font-mono text-volt text-xs bg-volt/10 px-2 py-0.5 rounded">PIN: {b.pin_code}</span>
+                        : <span className="text-ash text-xs">No PIN yet</span>
+                      }
                     </div>
                   </div>
-                  <div className="text-ash text-xs shrink-0">{new Date(b.created_at).toLocaleDateString()}</div>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <div className="text-ash text-xs">{new Date(b.created_at).toLocaleDateString()}</div>
+                    {b.status === "pending" && (
+                      <button
+                        onClick={async () => {
+                          const token = localStorage.getItem("ll_token");
+                          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000"}/api/admin/bookings/${b.id}/confirm`, {
+                            method: "PUT",
+                            headers: { Authorization: `Bearer ${token}` },
+                          });
+                          const data = await res.json();
+                          if (data.pin_code) {
+                            setBookings((prev) => prev.map((x) => x.id === b.id ? { ...x, status: "confirmed", pin_code: data.pin_code } : x));
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-volt/10 text-volt hover:bg-volt/20 transition-colors"
+                      >
+                        Generate PIN
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
