@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { api, saveToken, saveRole } from "@/lib/api";
@@ -8,6 +8,13 @@ import { useRouter } from "next/navigation";
 export default function SellLanding() {
   const router = useRouter();
   const [mode, setMode] = useState<"info" | "login" | "register">("info");
+
+  // If already logged in as seller/admin, go straight to dashboard
+  useEffect(() => {
+    const t = localStorage.getItem("ll_token");
+    const r = localStorage.getItem("ll_role");
+    if (t && (r === "seller" || r === "admin")) router.replace("/sell/dashboard");
+  }, [router]);
   const [form, setForm] = useState({ email: "", password: "", full_name: "", phone: "" });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

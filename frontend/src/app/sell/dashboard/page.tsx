@@ -23,8 +23,9 @@ export default function SellerDashboard() {
     Promise.all([api.myListings(), api.sellerBookings()])
       .then(([l, b]) => { setListings(l); setBookings(b); })
       .catch((e) => {
-        if (e.message?.includes("401") || e.message?.includes("authenticated")) router.push("/sell");
-        else setError(e.message);
+        const msg: string = e.message ?? "";
+        if (msg === "Not authenticated" || msg === "Invalid token") router.push("/sell");
+        else setError(msg || "Failed to load dashboard");
       })
       .finally(() => setLoading(false));
   }, [router]);
