@@ -401,6 +401,24 @@ async def toggle_user(
     return {"is_active": user.is_active}
 
 
+@app.put("/api/admin/bookings/{booking_id}/confirm")
+async def admin_confirm_booking(
+    booking_id: int,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Manually confirm a pending booking and generate a PIN (admin fallback)."""
+    b = await session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    if b.status != BookingStatus.pending:
+        raise HTTPException(400, f"Booking is already {b.status}")
+    b.status = BookingStatus.confirmed
+    b.pin_code = _gen_pin()
+    await session.commit()
+    return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
+
+
 # ── Stripe checkout ───────────────────────────────────────────────────────────
 
 @app.post("/api/checkout")
@@ -473,22 +491,29 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         logger.error("Webhook signature verification failed: %s", exc)
         raise HTTPException(400, f"Webhook error: {exc}")
 
+    event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", "unknown")
+    logger.info("Stripe webhook received: type=%s", event_type)
+
     try:
-        if event["type"] == "checkout.session.completed":
-            stripe_session = event["data"]["object"]
-            booking_id = int(stripe_session.get("metadata", {}).get("booking_id", 0))
+        if event_type == "checkout.session.completed":
+            # Support both dict-style (older Stripe lib) and attribute-style (newer)
+            data_obj = event["data"]["object"] if isinstance(event, dict) else event.data.object
+            metadata = data_obj.get("metadata", {}) if isinstance(data_obj, dict) else (getattr(data_obj, "metadata", None) or {})
+            booking_id = int(metadata.get("booking_id", 0))
+            logger.info("checkout.session.completed booking_id=%s metadata=%s", booking_id, metadata)
             if booking_id:
                 b = await session.get(Booking, booking_id)
                 if b and b.status == BookingStatus.pending:
                     b.status = BookingStatus.confirmed
                     b.pin_code = _gen_pin()
                     await session.commit()
-                    logger.info("Booking %d confirmed, PIN generated.", booking_id)
+                    logger.info("Booking %d confirmed PIN=%s", booking_id, b.pin_code)
                 else:
-                    logger.warning("Booking %d not found or already confirmed.", booking_id)
+                    logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
+            else:
+                logger.warning("No booking_id in metadata: %s", metadata)
     except Exception as exc:
-        logger.error("Webhook handler error: %s", exc)
-        # Return 200 so Stripe doesn't keep retrying a handler bug
+        logger.error("Webhook handler error: %s", exc, exc_info=True)
         return JSONResponse({"received": True, "error": str(exc)})
 
     return JSONResponse({"received": True})
