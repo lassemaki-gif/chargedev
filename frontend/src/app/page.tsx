@@ -30,7 +30,7 @@ export default function Landing() {
         <div className="relative max-w-4xl">
           <div className="inline-flex items-center gap-2 bg-volt/10 border border-volt/20 rounded-full px-4 py-1.5 text-volt text-sm font-medium mb-8">
             <span>⚡</span>
-            <span>Airbnb for EV charging</span>
+            <span>The home charging network</span>
           </div>
           <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
             Your outlet.<br />
