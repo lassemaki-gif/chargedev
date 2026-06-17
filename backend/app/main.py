@@ -74,6 +74,39 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
     except Exception as exc:
         logger.error("Failed to send PIN email: %s", exc)
 
+
+async def send_host_booking_email(host_email: str, host_name: str, booking: Booking, listing: Listing, buyer: User) -> None:
+    if not settings.resend_api_key:
+        return
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": [host_email],
+            "subject": f"New booking — {listing.title}",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#22C55E;margin-bottom:4px">You have a new booking ⚡</h2>
+              <p style="color:#555">Hi {host_name}, someone has booked your charger and payment is confirmed.</p>
+              <div style="background:#0A0F1E;border-radius:12px;padding:24px;margin:24px 0">
+                <p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px">Session PIN</p>
+                <p style="color:#22C55E;font-size:40px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
+                <p style="color:#9CA3AF;font-size:12px;margin:8px 0 0">Share this PIN with the driver when they arrive.</p>
+              </div>
+              <table style="width:100%;font-size:14px;color:#555;border-collapse:collapse">
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Driver</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{buyer.full_name}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Package</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{booking.package_kwh} kWh</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Your earnings</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#22C55E">€{booking.seller_earnings_eur:.2f}</td></tr>
+                <tr><td style="padding:6px 0">Charger</td><td style="padding:6px 0;text-align:right;color:#111">{listing.address}, {listing.city}</td></tr>
+              </table>
+              <p style="color:#555;font-size:14px;margin-top:20px">Once the session is done, mark it as complete in your <a href="https://chargedev.io/sell/dashboard" style="color:#22C55E">host dashboard</a>.</p>
+              <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
+            </div>
+            """,
+        })
+        logger.info("Host booking email sent to %s", host_email)
+    except Exception as exc:
+        logger.error("Failed to send host booking email: %s", exc)
+
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -645,6 +678,9 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                     listing = await session.get(Listing, b.listing_id)
                     if buyer and listing:
                         await send_pin_email(buyer.email, buyer.full_name, b, listing)
+                        host = await session.get(User, listing.seller_id)
+                        if host:
+                            await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
                 else:
                     logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
             else:
@@ -686,6 +722,10 @@ async def verify_checkout(
             logger.info("Booking %d confirmed via verify endpoint, PIN=%s", b.id, b.pin_code)
             listing = await session.get(Listing, b.listing_id)
             await send_pin_email(current_user.email, current_user.full_name, b, listing)
+            # Notify host
+            host = await session.get(User, listing.seller_id)
+            if host:
+                await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
     except Exception as exc:
         logger.error("Stripe verify error: %s", exc)
 
