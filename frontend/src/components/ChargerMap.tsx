@@ -55,7 +55,7 @@ export default function ChargerMap({ listings }: { listings: Listing[] }) {
           content: pin,
         });
 
-        marker.addEventListener("click", () => {
+        marker.addEventListener("gmp-click", () => {
           infoWindow.setContent(`
             <div style="min-width:190px;padding:4px 2px">
               <div style="font-weight:700;font-size:14px;margin-bottom:4px">${l.title}</div>
