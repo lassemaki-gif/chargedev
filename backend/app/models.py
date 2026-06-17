@@ -70,6 +70,7 @@ class Listing(Base):
     price_per_kwh: Mapped[float] = mapped_column(Float, default=0.25)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     instructions: Mapped[Optional[str]] = mapped_column(Text)
+    availability_json: Mapped[Optional[str]] = mapped_column(Text)  # JSON weekly schedule
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     seller: Mapped[User] = relationship("User", back_populates="listings")
@@ -77,6 +78,18 @@ class Listing(Base):
 
 
 PACKAGES_KWH = [20, 40, 60, 80]
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), unique=True, nullable=False)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), nullable=False)
+    reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
+    comment: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class Booking(Base):

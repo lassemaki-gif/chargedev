@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Nav } from "@/components/Nav";
+import { AvailabilityGrid, DEFAULT_AVAILABILITY, WeeklyAvailability } from "@/components/AvailabilityGrid";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
@@ -8,6 +9,7 @@ const CHARGER_TYPES = ["3-phase", "Type 2", "CCS", "CHAdeMO", "CEE"];
 
 export default function NewListing() {
   const router = useRouter();
+  const [availability, setAvailability] = useState<WeeklyAvailability>(DEFAULT_AVAILABILITY);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -29,7 +31,8 @@ export default function NewListing() {
     setError(null);
     setLoading(true);
     try {
-      await api.createListing(form);
+      const created = await api.createListing(form);
+      await api.setAvailability(created.id, availability);
       router.push("/sell/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -101,6 +104,11 @@ export default function NewListing() {
           <div>
             <label className="label">Access instructions</label>
             <textarea className="input min-h-[80px] resize-none" placeholder="e.g. Gate code is 1234. Press doorbell and I'll share the PIN." value={form.instructions} onChange={(e) => set("instructions", e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label mb-3 block">Availability</label>
+            <AvailabilityGrid value={availability} onChange={setAvailability} />
           </div>
 
           <button type="submit" disabled={loading} className="btn-volt w-full text-center">

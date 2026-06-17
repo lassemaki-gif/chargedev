@@ -74,6 +74,9 @@ class ListingOut(BaseModel):
     price_per_kwh: float
     is_available: bool
     instructions: Optional[str]
+    availability_json: Optional[str]
+    avg_rating: Optional[float] = None
+    review_count: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -107,6 +110,25 @@ class BookingOut(BaseModel):
     scheduled_at: Optional[datetime]
     completed_at: Optional[datetime]
     notes: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReviewCreate(BaseModel):
+    booking_id: int
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=500)
+
+
+class ReviewOut(BaseModel):
+    id: int
+    booking_id: int
+    listing_id: int
+    reviewer_id: int
+    reviewer_name: str
+    rating: int
+    comment: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}

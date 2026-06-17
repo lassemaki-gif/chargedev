@@ -49,6 +49,20 @@ export const api = {
   completeBooking: (id: number) => req<{ status: string }>("PUT", `/api/seller/bookings/${id}/complete`),
   adminPayout: (sellerId: number) => req<{ seller: string; iban: string; bookings_paid: number; amount_eur: number }>("PUT", `/api/admin/sellers/${sellerId}/payout`),
 
+  // Reviews
+  createReview: (body: { booking_id: number; rating: number; comment?: string }) =>
+    req<Review_>("POST", "/api/reviews", body),
+  listingReviews: (listingId: number) => req<Review_[]>("GET", `/api/listings/${listingId}/reviews`),
+  sellerReviews: () => req<Review_[]>("GET", "/api/seller/reviews"),
+
+  // Availability
+  setAvailability: (listingId: number, body: object) =>
+    req<{ ok: boolean }>("PUT", `/api/seller/listings/${listingId}/availability`, body),
+
+  // Notifications polling
+  newBookingsSince: (since: number) =>
+    req<{ count: number; bookings: { id: number; listing_id: number }[] }>("GET", `/api/seller/new-bookings?since=${since}`),
+
   // Buyer
   checkout: (body: { listing_id: number; package_kwh: number; notes?: string }) =>
     req<{ checkout_url: string; booking_id: number }>("POST", "/api/checkout", body),
@@ -82,6 +96,9 @@ export interface Listing {
   price_per_kwh: number;
   is_available: boolean;
   instructions?: string;
+  availability_json?: string;
+  avg_rating?: number;
+  review_count?: number;
   created_at: string;
 }
 
@@ -115,6 +132,17 @@ export interface User {
   iban?: string;
   role: string;
   is_active: boolean;
+  created_at: string;
+}
+
+export interface Review_ {
+  id: number;
+  booking_id: number;
+  listing_id: number;
+  reviewer_id: number;
+  reviewer_name: string;
+  rating: number;
+  comment?: string;
   created_at: string;
 }
 

@@ -25,12 +25,12 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, User, UserRole,
+    Booking, BookingStatus, Listing, PACKAGES_KWH, Review, User, UserRole,
 )
 from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
     LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
-    SellerEarnings, TokenResponse, UserOut,
+    ReviewCreate, ReviewOut, SellerEarnings, TokenResponse, UserOut,
 )
 
 
@@ -107,6 +107,20 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
         logger.info("PIN email sent to %s", buyer_email)
     except Exception as exc:
         logger.error("Failed to send PIN email: %s", exc)
+
+
+async def listing_out(r: Listing, seller_name: str, session: AsyncSession) -> ListingOut:
+    """Build ListingOut including avg rating."""
+    reviews = (await session.execute(
+        select(Review).where(Review.listing_id == r.id)
+    )).scalars().all()
+    avg = round(sum(rv.rating for rv in reviews) / len(reviews), 1) if reviews else None
+    return ListingOut(
+        **{c.key: getattr(r, c.key) for c in r.__table__.columns},
+        seller_name=seller_name,
+        avg_rating=avg,
+        review_count=len(reviews),
+    )
 
 
 async def send_host_booking_email(host_email: str, host_name: str, booking: Booking, listing: Listing, buyer: User) -> None:
@@ -260,10 +274,7 @@ async def list_listings(
     result = []
     for r in rows:
         seller = await session.get(User, r.seller_id)
-        result.append(ListingOut(
-            **{c.key: getattr(r, c.key) for c in r.__table__.columns},
-            seller_name=seller.full_name if seller else "—",
-        ))
+        result.append(await listing_out(r, seller.full_name if seller else "—", session))
     return result
 
 
@@ -273,10 +284,7 @@ async def get_listing(listing_id: int, session: AsyncSession = Depends(get_sessi
     if not r:
         raise HTTPException(404, "Listing not found")
     seller = await session.get(User, r.seller_id)
-    return ListingOut(
-        **{c.key: getattr(r, c.key) for c in r.__table__.columns},
-        seller_name=seller.full_name if seller else "—",
-    )
+    return await listing_out(r, seller.full_name if seller else "—", session)
 
 
 # ── Seller endpoints ──────────────────────────────────────────────────────────
@@ -292,10 +300,7 @@ async def create_listing(
     session.add(listing)
     await session.commit()
     await session.refresh(listing)
-    return ListingOut(
-        **{c.key: getattr(listing, c.key) for c in listing.__table__.columns},
-        seller_name=current_user.full_name,
-    )
+    return await listing_out(listing, current_user.full_name, session)
 
 
 @app.put("/api/seller/profile", response_model=UserOut)
@@ -365,10 +370,7 @@ async def my_listings(
     rows = (await session.execute(
         select(Listing).where(Listing.seller_id == current_user.id)
     )).scalars().all()
-    return [
-        ListingOut(**{c.key: getattr(r, c.key) for c in r.__table__.columns}, seller_name=current_user.full_name)
-        for r in rows
-    ]
+    return [await listing_out(r, current_user.full_name, session) for r in rows]
 
 
 @app.put("/api/seller/listings/{listing_id}/toggle")
@@ -817,3 +819,118 @@ async def booking_by_session(
     b.listing = await session.get(Listing, b.listing_id)
     b.buyer = current_user
     return _booking_out(b, show_pin=True)
+
+
+# ── Reviews ───────────────────────────────────────────────────────────────────
+
+@app.post("/api/reviews", response_model=ReviewOut)
+async def create_review(
+    body: ReviewCreate,
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    b = await session.get(Booking, body.booking_id)
+    if not b or b.buyer_id != current_user.id:
+        raise HTTPException(404, "Booking not found")
+    if b.status != BookingStatus.completed:
+        raise HTTPException(422, "Can only review completed bookings")
+    existing = (await session.execute(
+        select(Review).where(Review.booking_id == body.booking_id)
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(409, "You already reviewed this booking")
+    review = Review(
+        booking_id=body.booking_id,
+        listing_id=b.listing_id,
+        reviewer_id=current_user.id,
+        rating=body.rating,
+        comment=body.comment,
+    )
+    session.add(review)
+    await session.commit()
+    await session.refresh(review)
+    return ReviewOut(
+        **{c.key: getattr(review, c.key) for c in review.__table__.columns},
+        reviewer_name=current_user.full_name,
+    )
+
+
+@app.get("/api/listings/{listing_id}/reviews", response_model=list[ReviewOut])
+async def listing_reviews(listing_id: int, session: AsyncSession = Depends(get_session)):
+    rows = (await session.execute(
+        select(Review).where(Review.listing_id == listing_id).order_by(Review.created_at.desc())
+    )).scalars().all()
+    result = []
+    for r in rows:
+        reviewer = await session.get(User, r.reviewer_id)
+        result.append(ReviewOut(
+            **{c.key: getattr(r, c.key) for c in r.__table__.columns},
+            reviewer_name=reviewer.full_name if reviewer else "—",
+        ))
+    return result
+
+
+@app.get("/api/seller/reviews", response_model=list[ReviewOut])
+async def seller_reviews(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing_ids = [
+        r.id for r in (await session.execute(
+            select(Listing.id).where(Listing.seller_id == current_user.id)
+        )).all()
+    ]
+    rows = (await session.execute(
+        select(Review).where(Review.listing_id.in_(listing_ids)).order_by(Review.created_at.desc())
+    )).scalars().all()
+    result = []
+    for r in rows:
+        reviewer = await session.get(User, r.reviewer_id)
+        result.append(ReviewOut(
+            **{c.key: getattr(r, c.key) for c in r.__table__.columns},
+            reviewer_name=reviewer.full_name if reviewer else "—",
+        ))
+    return result
+
+
+# ── Availability ──────────────────────────────────────────────────────────────
+
+@app.put("/api/seller/listings/{listing_id}/availability")
+async def set_availability(
+    listing_id: int,
+    body: dict,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    import json as _json
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    listing.availability_json = _json.dumps(body)
+    await session.commit()
+    return {"ok": True}
+
+
+# ── Notifications (polling) ───────────────────────────────────────────────────
+
+@app.get("/api/seller/new-bookings")
+async def new_bookings_since(
+    since: float,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    from datetime import datetime as dt
+    since_dt = dt.utcfromtimestamp(since)
+    listing_ids = [
+        r.id for r in (await session.execute(
+            select(Listing.id).where(Listing.seller_id == current_user.id)
+        )).all()
+    ]
+    rows = (await session.execute(
+        select(Booking).where(
+            Booking.listing_id.in_(listing_ids),
+            Booking.status == BookingStatus.confirmed,
+            Booking.created_at > since_dt,
+        )
+    )).scalars().all()
+    return {"count": len(rows), "bookings": [{"id": b.id, "listing_id": b.listing_id} for b in rows]}

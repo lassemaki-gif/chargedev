@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { api, Listing, PACKAGES, saveToken, saveRole } from "@/lib/api";
+import { StarRating } from "@/components/StarRating";
+import { AvailabilityGrid, WeeklyAvailability } from "@/components/AvailabilityGrid";
+import { api, Listing, PACKAGES, Review_, saveToken, saveRole } from "@/lib/api";
 import { useRouter, useParams } from "next/navigation";
 
 export default function ChargerDetail() {
@@ -10,6 +12,10 @@ export default function ChargerDetail() {
   const [listing, setListing] = useState<Listing | null>(null);
   const [selectedPkg, setSelectedPkg] = useState<number | null>(null);
   const [mode, setMode] = useState<"view" | "login" | "register">("view");
+  const [reviews, setReviews] = useState<Review_[]>([]);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [authForm, setAuthForm] = useState({ email: "", password: "", full_name: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +23,7 @@ export default function ChargerDetail() {
 
   useEffect(() => {
     api.listing(parseInt(id)).then(setListing).catch(() => router.push("/charge"));
+    api.listingReviews(parseInt(id)).then(setReviews).catch(() => {});
   }, [id, router]);
 
   const pkg = selectedPkg ? PACKAGES.find((p) => p.kwh === selectedPkg) : null;
@@ -161,11 +168,82 @@ export default function ChargerDetail() {
               </div>
             )}
             {listing.instructions && (
-              <div className="card bg-volt/5 border-volt/20">
+              <div className="card bg-volt/5 border-volt/20 mb-6">
                 <h2 className="font-semibold text-white mb-2">Access instructions</h2>
                 <p className="text-ash text-sm leading-relaxed">{listing.instructions}</p>
               </div>
             )}
+
+            {/* Availability */}
+            {listing.availability_json && (() => {
+              try {
+                const av: WeeklyAvailability = JSON.parse(listing.availability_json);
+                return (
+                  <div className="mb-6">
+                    <h2 className="font-semibold text-white mb-3">Availability</h2>
+                    <AvailabilityGrid value={av} onChange={() => {}} readonly />
+                  </div>
+                );
+              } catch { return null; }
+            })()}
+
+            {/* Reviews */}
+            <div className="mb-6">
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="font-semibold text-white">Reviews</h2>
+                {listing.avg_rating && (
+                  <span className="flex items-center gap-1">
+                    <StarRating value={Math.round(listing.avg_rating)} readonly size="sm" />
+                    <span className="text-ash text-sm">{listing.avg_rating} ({listing.review_count})</span>
+                  </span>
+                )}
+              </div>
+              {reviews.length === 0 && <p className="text-ash text-sm">No reviews yet.</p>}
+              <div className="space-y-3">
+                {reviews.map((r) => (
+                  <div key={r.id} className="card">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-white text-sm">{r.reviewer_name}</span>
+                      <StarRating value={r.rating} readonly size="sm" />
+                    </div>
+                    {r.comment && <p className="text-ash text-sm">{r.comment}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Leave a review (only for completed bookings — checked server-side) */}
+              <div className="mt-4 card">
+                <h3 className="font-medium text-white text-sm mb-3">Leave a review</h3>
+                <StarRating value={reviewRating} onChange={setReviewRating} size="lg" />
+                <textarea
+                  className="input mt-3 min-h-[60px] resize-none text-sm"
+                  placeholder="Share your experience…"
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                />
+                <button
+                  disabled={reviewRating === 0 || reviewSubmitting}
+                  onClick={async () => {
+                    // Find completed booking for this listing
+                    const myBookings = await api.myBookings().catch(() => []);
+                    const b = myBookings.find((bk) => bk.listing_id === listing!.id && bk.status === "completed");
+                    if (!b) { alert("You can only review listings you've used."); return; }
+                    setReviewSubmitting(true);
+                    try {
+                      const rv = await api.createReview({ booking_id: b.id, rating: reviewRating, comment: reviewComment });
+                      setReviews((prev) => [rv, ...prev]);
+                      setReviewRating(0);
+                      setReviewComment("");
+                    } catch (e: unknown) {
+                      alert(e instanceof Error ? e.message : "Could not submit review");
+                    } finally { setReviewSubmitting(false); }
+                  }}
+                  className="btn-volt mt-3 text-sm disabled:opacity-40"
+                >
+                  {reviewSubmitting ? "Submitting…" : "Submit review"}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Right: Booking */}

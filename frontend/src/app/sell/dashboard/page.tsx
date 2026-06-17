@@ -23,6 +23,7 @@ export default function SellerDashboard() {
   const [ibanSaving, setIbanSaving] = useState(false);
   const [ibanSaved, setIbanSaved] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
+  const [notifEnabled, setNotifEnabled] = useState(false);
 
   useEffect(() => {
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
@@ -39,6 +40,27 @@ export default function SellerDashboard() {
       })
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function enableNotifications() {
+    if (!("Notification" in window)) { alert("Your browser does not support notifications."); return; }
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return;
+    setNotifEnabled(true);
+    let lastChecked = Date.now() / 1000;
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.newBookingsSince(lastChecked);
+        if (res.count > 0) {
+          new Notification("ChargedEV — New booking ⚡", {
+            body: `You have ${res.count} new booking${res.count > 1 ? "s" : ""}!`,
+            icon: "/favicon.ico",
+          });
+        }
+        lastChecked = Date.now() / 1000;
+      } catch { clearInterval(interval); }
+    }, 30000);
+    return () => clearInterval(interval);
+  }
 
   async function saveIban(e: React.FormEvent) {
     e.preventDefault();
@@ -87,7 +109,15 @@ export default function SellerDashboard() {
             <h1 className="text-3xl font-bold text-white">Host dashboard</h1>
             <p className="text-ash mt-1">Manage your chargers and bookings</p>
           </div>
+          <div className="flex gap-2">
+          {!notifEnabled && (
+            <button onClick={enableNotifications} className="btn-outline text-sm">
+              🔔 Enable notifications
+            </button>
+          )}
+          {notifEnabled && <span className="text-volt text-sm self-center">🔔 Notifications on</span>}
           <Link href="/sell/listing/new" className="btn-volt text-sm">+ Add charger</Link>
+        </div>
         </div>
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
