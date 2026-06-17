@@ -1,5 +1,43 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { markets, packagePrice } from "@/lib/markets";
+
+const REGIONS = [
+  { label: "European Union", ids: ["at","be","bg","hr","cy","cz","dk","ee","fi","fr","de","gr","hu","ie","it","lv","lt","lu","mt","nl","pl","pt","ro","sk","si","es","se"] },
+  { label: "Outside EU", ids: ["gb","ch","no","is"] },
+  { label: "Americas & Oceania", ids: ["us","ca","au","nz","mx","br","co","pe","cl","ar","pr"] },
+  { label: "Asia", ids: ["jp","kr","hk","tw","sg","th","my","ph","id"] },
+];
+
+function MarketGrid() {
+  return (
+    <div className="space-y-10">
+      {REGIONS.map(({ label, ids }) => {
+        const regionMarkets = ids.map((id) => markets.find((m) => m.id === id)!).filter(Boolean);
+        return (
+          <div key={label}>
+            <p className="text-ash text-xs uppercase tracking-widest mb-3">{label}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-px bg-border border border-border">
+              {regionMarkets.map((m) => (
+                <Link key={m.id} href={`/${m.id}`} className="group bg-card p-5 flex flex-col justify-between min-h-[120px] hover:bg-border transition-colors">
+                  <div>
+                    <p className="text-ash text-xs uppercase tracking-widest mb-1 group-hover:text-white/50">{m.countryNameEn}</p>
+                  </div>
+                  <div className="flex items-end justify-between">
+                    <span className="font-mono text-xs text-ash group-hover:text-white/50">
+                      {m.currencySymbol}{m.pricePerKwh}/kWh
+                    </span>
+                    <span className="text-volt group-hover:translate-x-1 transition-transform">→</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export const metadata: Metadata = {
   title: "ChargedEV — The home charging network",
@@ -185,6 +223,13 @@ export default function Landing() {
           <Link href="/sell" className="btn-volt">Become a host</Link>
           <Link href="/charge" className="btn-outline">Find a charger</Link>
         </div>
+      </section>
+
+      {/* Market hub */}
+      <section className="border-t border-border px-6 lg:px-16 py-16">
+        <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Available in 59 markets</p>
+        <h2 className="text-2xl font-bold text-white mb-8">Select your country</h2>
+        <MarketGrid />
       </section>
 
       {/* Footer */}
