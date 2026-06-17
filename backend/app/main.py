@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
+import httpx
 import resend
 import stripe as stripe_lib
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -41,6 +42,23 @@ async def lifespan(_: FastAPI):
 stripe_lib.api_key = settings.stripe_secret_key
 resend.api_key = settings.resend_api_key
 logger = logging.getLogger(__name__)
+
+
+async def geocode(address: str, city: str, country: str) -> tuple:
+    """Returns (lat, lng) or (None, None) using OpenStreetMap Nominatim."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": f"{address}, {city}, {country}", "format": "json", "limit": 1},
+                headers={"User-Agent": "ChargedEV/1.0 (chargedev.io)"},
+            )
+            data = r.json()
+            if data:
+                return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception as exc:
+        logger.warning("Geocoding failed: %s", exc)
+    return None, None
 
 
 async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, listing: Listing) -> None:
@@ -248,7 +266,8 @@ async def create_listing(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    listing = Listing(seller_id=current_user.id, **body.model_dump())
+    lat, lng = await geocode(body.address, body.city, body.country)
+    listing = Listing(seller_id=current_user.id, lat=lat, lng=lng, **body.model_dump())
     session.add(listing)
     await session.commit()
     await session.refresh(listing)

@@ -67,6 +67,8 @@ class ListingOut(BaseModel):
     address: str
     city: str
     country: str
+    lat: Optional[float]
+    lng: Optional[float]
     charger_type: str
     max_power_kw: float
     price_per_kwh: float

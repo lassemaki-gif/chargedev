@@ -75,6 +75,8 @@ export interface Listing {
   address: string;
   city: string;
   country: string;
+  lat?: number;
+  lng?: number;
   charger_type: string;
   max_power_kw: number;
   price_per_kwh: number;
