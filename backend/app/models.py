@@ -33,7 +33,6 @@ class ChargerType(str, PyEnum):
     type2 = "Type 2"
     ccs = "CCS"
     chademo = "CHAdeMO"
-    schuko = "Schuko"
 
 
 class User(Base):
