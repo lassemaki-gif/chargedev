@@ -343,7 +343,7 @@ async def complete_booking(
     if listing.seller_id != current_user.id:
         raise HTTPException(403, "Not your listing")
     b.status = BookingStatus.completed
-    b.completed_at = datetime.now(timezone.utc)
+    b.completed_at = datetime.utcnow()
     await session.commit()
     return {"status": "completed"}
 
@@ -504,7 +504,7 @@ async def admin_payout(
         )
     )).scalars().all()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     total = 0.0
     for b in rows:
         b.paid_out = True
