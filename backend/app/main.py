@@ -572,6 +572,32 @@ async def admin_payout(
     }
 
 
+@app.post("/api/admin/geocode-listings")
+async def geocode_all_listings(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Geocode all listings that are missing lat/lng."""
+    rows = (await session.execute(
+        select(Listing).where(Listing.lat == None)
+    )).scalars().all()
+
+    updated, failed = 0, 0
+    for listing in rows:
+        lat, lng = await geocode(listing.address, listing.city, listing.country)
+        if lat and lng:
+            listing.lat = lat
+            listing.lng = lng
+            updated += 1
+        else:
+            failed += 1
+        import asyncio
+        await asyncio.sleep(1)  # Nominatim rate limit: 1 req/sec
+
+    await session.commit()
+    return {"updated": updated, "failed": failed, "total": len(rows)}
+
+
 @app.put("/api/admin/users/{user_id}/toggle")
 async def toggle_user(
     user_id: int,
