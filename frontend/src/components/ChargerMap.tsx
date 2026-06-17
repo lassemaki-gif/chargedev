@@ -1,49 +1,76 @@
 "use client";
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
-import Link from "next/link";
+import { useEffect, useRef } from "react";
+import { importLibrary, setOptions } from "@googlemaps/js-api-loader";
 import type { Listing } from "@/lib/api";
 
-// Fix default marker icons broken by webpack
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
+export default function ChargerMap({ listings }: { listings: Listing[] }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<google.maps.Map | null>(null);
 
-const voltIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
-});
-
-function FitBounds({ listings }: { listings: Listing[] }) {
-  const map = useMap();
   useEffect(() => {
-    const points = listings.filter((l) => l.lat && l.lng).map((l) => [l.lat!, l.lng!] as [number, number]);
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-    } else if (points.length > 1) {
-      map.fitBounds(points, { padding: [40, 40] });
-    }
-  }, [listings, map]);
-  return null;
-}
+    const mapped = listings.filter((l) => l.lat && l.lng);
+    if (!mapRef.current || mapped.length === 0) return;
 
-interface Props {
-  listings: Listing[];
-}
+    setOptions({
+      key: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "",
+      v: "weekly",
+    });
 
-export default function ChargerMap({ listings }: Props) {
-  const mapped = listings.filter((l) => l.lat && l.lng);
+    (async () => {
+      const { Map, InfoWindow } = await importLibrary("maps") as google.maps.MapsLibrary;
+      const { AdvancedMarkerElement } = await importLibrary("marker") as google.maps.MarkerLibrary;
 
-  if (mapped.length === 0) {
+      if (!mapInstance.current) {
+        mapInstance.current = new Map(mapRef.current!, {
+          mapId: "chargedev",
+          center: { lat: mapped[0].lat!, lng: mapped[0].lng! },
+          zoom: 12,
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+        });
+      }
+
+      const map = mapInstance.current!;
+      const infoWindow = new InfoWindow();
+
+      if (mapped.length > 1) {
+        const bounds = new google.maps.LatLngBounds();
+        mapped.forEach((l) => bounds.extend({ lat: l.lat!, lng: l.lng! }));
+        map.fitBounds(bounds, 60);
+      } else {
+        map.setCenter({ lat: mapped[0].lat!, lng: mapped[0].lng! });
+      }
+
+      mapped.forEach((l) => {
+        const pin = document.createElement("div");
+        pin.textContent = "⚡";
+        pin.style.cssText = "background:#22C55E;color:#0A0F1E;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4)";
+
+        const marker = new AdvancedMarkerElement({
+          position: { lat: l.lat!, lng: l.lng! },
+          map,
+          title: l.title,
+          content: pin,
+        });
+
+        marker.addEventListener("click", () => {
+          infoWindow.setContent(`
+            <div style="min-width:190px;padding:4px 2px">
+              <div style="font-weight:700;font-size:14px;margin-bottom:4px">${l.title}</div>
+              <div style="color:#555;font-size:12px;margin-bottom:8px">${l.charger_type} · ${l.max_power_kw} kW · €${l.price_per_kwh.toFixed(2)}/kWh</div>
+              <a href="/charge/${l.id}" style="display:inline-block;background:#22C55E;color:#0A0F1E;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none">Book →</a>
+            </div>
+          `);
+          infoWindow.open({ anchor: marker, map });
+        });
+      });
+    })();
+  }, [listings]);
+
+  const hasCoords = listings.some((l) => l.lat && l.lng);
+  if (!hasCoords) {
     return (
       <div className="h-full flex items-center justify-center text-ash text-sm">
         No chargers with location data yet.
@@ -51,38 +78,5 @@ export default function ChargerMap({ listings }: Props) {
     );
   }
 
-  const center: [number, number] = [mapped[0].lat!, mapped[0].lng!];
-
-  return (
-    <MapContainer
-      center={center}
-      zoom={12}
-      style={{ height: "100%", width: "100%" }}
-      className="z-0"
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <FitBounds listings={mapped} />
-      {mapped.map((l) => (
-        <Marker key={l.id} position={[l.lat!, l.lng!]} icon={voltIcon}>
-          <Popup>
-            <div style={{ minWidth: 180 }}>
-              <strong style={{ fontSize: 14 }}>{l.title}</strong>
-              <p style={{ margin: "4px 0", color: "#555", fontSize: 12 }}>
-                {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh
-              </p>
-              <Link
-                href={`/charge/${l.id}`}
-                style={{ color: "#22C55E", fontSize: 13, fontWeight: 600 }}
-              >
-                Book →
-              </Link>
-            </div>
-          </Popup>
-        </Marker>
-      ))}
-    </MapContainer>
-  );
+  return <div ref={mapRef} style={{ width: "100%", height: "100%" }} />;
 }
