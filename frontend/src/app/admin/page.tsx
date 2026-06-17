@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { api, PlatformStats, User, Listing, Booking, saveToken, saveRole } from "@/lib/api";
 
-type Tab = "overview" | "users" | "listings" | "bookings";
+type Tab = "overview" | "users" | "listings" | "bookings" | "payouts";
 
 function statusBadge(s: string) {
   if (s === "completed") return <span className="badge-green">Completed</span>;
@@ -86,8 +86,11 @@ export default function AdminDashboard() {
     </div>
   );
 
+  const sellers = users.filter((u) => u.role === "seller");
+
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
+    { key: "payouts", label: `Payouts (${sellers.length})` },
     { key: "users", label: `Users (${users.length})` },
     { key: "listings", label: `Listings (${listings.length})` },
     { key: "bookings", label: `Bookings (${bookings.length})` },
@@ -148,6 +151,61 @@ export default function AdminDashboard() {
                 <div className="text-ash text-xs">of each transaction</div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Payouts */}
+        {tab === "payouts" && (
+          <div className="space-y-3">
+            {sellers.length === 0 && <div className="card text-ash text-sm">No sellers yet.</div>}
+            {sellers.map((seller) => {
+              const sellerBookings = bookings.filter((b) =>
+                listings.find((l) => l.id === b.listing_id && l.seller_id === seller.id)
+              );
+              const pending = sellerBookings
+                .filter((b) => b.status === "completed" && !b.paid_out)
+                .reduce((s, b) => s + b.seller_earnings_eur, 0);
+              const paid = sellerBookings
+                .filter((b) => b.paid_out)
+                .reduce((s, b) => s + b.seller_earnings_eur, 0);
+              return (
+                <div key={seller.id} className="card">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-semibold text-white">{seller.full_name}</div>
+                      <div className="text-ash text-sm">{seller.email}</div>
+                      <div className="mt-2 flex items-center gap-4 text-sm flex-wrap">
+                        <span className="text-volt font-medium">€{pending.toFixed(2)} pending</span>
+                        <span className="text-ash">€{paid.toFixed(2)} paid out</span>
+                        {seller.iban
+                          ? <span className="font-mono text-xs bg-card px-2 py-0.5 rounded border border-border">{seller.iban}</span>
+                          : <span className="badge-yellow">No IBAN</span>
+                        }
+                      </div>
+                    </div>
+                    <button
+                      disabled={pending === 0 || !seller.iban}
+                      onClick={async () => {
+                        if (!confirm(`Pay €${pending.toFixed(2)} to ${seller.full_name} (${seller.iban})?`)) return;
+                        const token = localStorage.getItem("ll_token");
+                        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000"}/api/admin/sellers/${seller.id}/payout`, {
+                          method: "PUT",
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        const data = await res.json();
+                        if (data.bookings_paid >= 0) {
+                          alert(`✅ Marked ${data.bookings_paid} booking(s) as paid (€${data.amount_eur}). Now transfer €${data.amount_eur} to ${data.iban}.`);
+                          loadAll();
+                        }
+                      }}
+                      className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-volt/10 text-volt hover:bg-volt/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      Mark as paid out
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

@@ -27,7 +27,8 @@ from .models import (
 )
 from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
-    LoginRequest, PlatformStats, RegisterRequest, TokenResponse, UserOut,
+    LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
+    SellerEarnings, TokenResponse, UserOut,
 )
 
 
@@ -114,6 +115,8 @@ def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
         platform_fee_eur=b.platform_fee_eur,
         status=b.status,
         pin_code=b.pin_code if show_pin else None,
+        paid_out=b.paid_out or False,
+        paid_out_at=b.paid_out_at,
         scheduled_at=b.scheduled_at,
         completed_at=b.completed_at,
         notes=b.notes,
@@ -219,6 +222,62 @@ async def create_listing(
     return ListingOut(
         **{c.key: getattr(listing, c.key) for c in listing.__table__.columns},
         seller_name=current_user.full_name,
+    )
+
+
+@app.put("/api/seller/profile", response_model=UserOut)
+async def update_profile(
+    body: ProfileUpdate,
+    current_user: User = Depends(require_role("seller", "buyer", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    if body.full_name is not None:
+        current_user.full_name = body.full_name
+    if body.phone is not None:
+        current_user.phone = body.phone
+    if body.iban is not None:
+        current_user.iban = body.iban.upper().replace(" ", "")
+    await session.commit()
+    await session.refresh(current_user)
+    return current_user
+
+
+@app.get("/api/seller/earnings", response_model=SellerEarnings)
+async def seller_earnings(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    from datetime import date
+    import calendar
+
+    my_listing_ids = [
+        r.id for r in (await session.execute(
+            select(Listing.id).where(Listing.seller_id == current_user.id)
+        )).all()
+    ]
+    bookings = (await session.execute(
+        select(Booking).where(
+            Booking.listing_id.in_(my_listing_ids),
+            Booking.status == BookingStatus.completed,
+        )
+    )).scalars().all()
+
+    pending = sum(b.seller_earnings_eur for b in bookings if not b.paid_out)
+    paid = sum(b.seller_earnings_eur for b in bookings if b.paid_out)
+
+    # Next payout = 1st of next month
+    today = date.today()
+    if today.month == 12:
+        next_payout = date(today.year + 1, 1, 1)
+    else:
+        next_payout = date(today.year, today.month + 1, 1)
+
+    return SellerEarnings(
+        pending_eur=round(pending, 2),
+        paid_out_eur=round(paid, 2),
+        total_eur=round(pending + paid, 2),
+        next_payout_date=next_payout.isoformat(),
+        iban=current_user.iban,
     )
 
 
@@ -419,6 +478,46 @@ async def admin_bookings(
         b.buyer = await session.get(User, b.buyer_id)
         result.append(_booking_out(b, show_pin=True))
     return result
+
+
+@app.put("/api/admin/sellers/{seller_id}/payout")
+async def admin_payout(
+    seller_id: int,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mark all completed, unpaid bookings for a seller as paid out."""
+    seller = await session.get(User, seller_id)
+    if not seller:
+        raise HTTPException(404, "Seller not found")
+
+    listing_ids = [
+        r.id for r in (await session.execute(
+            select(Listing.id).where(Listing.seller_id == seller_id)
+        )).all()
+    ]
+    rows = (await session.execute(
+        select(Booking).where(
+            Booking.listing_id.in_(listing_ids),
+            Booking.status == BookingStatus.completed,
+            Booking.paid_out == False,
+        )
+    )).scalars().all()
+
+    now = datetime.now(timezone.utc)
+    total = 0.0
+    for b in rows:
+        b.paid_out = True
+        b.paid_out_at = now
+        total += b.seller_earnings_eur
+    await session.commit()
+
+    return {
+        "seller": seller.full_name,
+        "iban": seller.iban,
+        "bookings_paid": len(rows),
+        "amount_eur": round(total, 2),
+    }
 
 
 @app.put("/api/admin/users/{user_id}/toggle")

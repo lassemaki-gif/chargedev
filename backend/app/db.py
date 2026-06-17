@@ -31,6 +31,9 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         "CREATE UNIQUE INDEX IF NOT EXISTS ix_bookings_stripe_session_id "
                         "ON bookings (stripe_session_id) WHERE stripe_session_id IS NOT NULL"
                     ),
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS iban VARCHAR(34)",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_out BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_out_at TIMESTAMP",
                 ]
                 for sql in migrations:
                     try:

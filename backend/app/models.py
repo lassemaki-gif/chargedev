@@ -44,6 +44,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(40))
+    iban: Mapped[Optional[str]] = mapped_column(String(34))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -95,6 +96,8 @@ class Booking(Base):
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    paid_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_out_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     listing: Mapped[Listing] = relationship("Listing", back_populates="bookings")

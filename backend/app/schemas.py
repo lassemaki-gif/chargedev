@@ -30,11 +30,18 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     phone: Optional[str]
+    iban: Optional[str]
     role: str
     is_active: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=2, max_length=120)
+    phone: Optional[str] = Field(None, max_length=40)
+    iban: Optional[str] = Field(None, max_length=34)
 
 
 # ── Listings ──────────────────────────────────────────────────────────────────
@@ -92,13 +99,23 @@ class BookingOut(BaseModel):
     seller_earnings_eur: float
     platform_fee_eur: float
     status: str
-    pin_code: Optional[str]  # only shown to buyer/seller after confirm
+    pin_code: Optional[str]
+    paid_out: bool = False
+    paid_out_at: Optional[datetime] = None
     scheduled_at: Optional[datetime]
     completed_at: Optional[datetime]
     notes: Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SellerEarnings(BaseModel):
+    pending_eur: float
+    paid_out_eur: float
+    total_eur: float
+    next_payout_date: str
+    iban: Optional[str]
 
 
 # ── Admin stats ───────────────────────────────────────────────────────────────

@@ -39,11 +39,15 @@ export const api = {
   listing: (id: number) => req<Listing>("GET", `/api/listings/${id}`),
 
   // Seller
+  updateProfile: (body: { full_name?: string; phone?: string; iban?: string }) =>
+    req<User>("PUT", "/api/seller/profile", body),
+  sellerEarnings: () => req<SellerEarnings>("GET", "/api/seller/earnings"),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),
   myListings: () => req<Listing[]>("GET", "/api/seller/listings"),
   toggleListing: (id: number) => req<{ is_available: boolean }>("PUT", `/api/seller/listings/${id}/toggle`),
   sellerBookings: () => req<Booking[]>("GET", "/api/seller/bookings"),
   completeBooking: (id: number) => req<{ status: string }>("PUT", `/api/seller/bookings/${id}/complete`),
+  adminPayout: (sellerId: number) => req<{ seller: string; iban: string; bookings_paid: number; amount_eur: number }>("PUT", `/api/admin/sellers/${sellerId}/payout`),
 
   // Buyer
   checkout: (body: { listing_id: number; package_kwh: number; notes?: string }) =>
@@ -93,6 +97,8 @@ export interface Booking {
   platform_fee_eur: number;
   status: string;
   pin_code?: string;
+  paid_out: boolean;
+  paid_out_at?: string;
   scheduled_at?: string;
   completed_at?: string;
   notes?: string;
@@ -104,9 +110,18 @@ export interface User {
   email: string;
   full_name: string;
   phone?: string;
+  iban?: string;
   role: string;
   is_active: boolean;
   created_at: string;
+}
+
+export interface SellerEarnings {
+  pending_eur: number;
+  paid_out_eur: number;
+  total_eur: number;
+  next_payout_date: string;
+  iban: string | null;
 }
 
 export interface PlatformStats {
