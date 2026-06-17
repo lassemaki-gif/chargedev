@@ -200,16 +200,6 @@ async def health() -> dict:
     return {"ok": True}
 
 
-@app.get("/api/debug/ip")
-async def debug_ip(request: Request) -> dict:
-    return {
-        "client_host": request.client.host if request.client else None,
-        "x_real_ip": request.headers.get("x-real-ip"),
-        "x_forwarded_for": request.headers.get("x-forwarded-for"),
-        "x_envoy": request.headers.get("x-envoy-external-address"),
-        "resolved": real_ip(request),
-    }
-
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
