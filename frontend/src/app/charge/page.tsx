@@ -1,4 +1,5 @@
 "use client";
+// Metadata is set in the parent layout — this is a client component
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";

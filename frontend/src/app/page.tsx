@@ -1,4 +1,28 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+
+export const metadata: Metadata = {
+  title: "ChargedEV — The home charging network",
+  description: "Find EV chargers at homes near you, or earn money by renting out your own socket. Fixed packages: 20, 40, 60 or 80 kWh.",
+  alternates: { canonical: "https://chargedev.io" },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "ChargedEV",
+  url: "https://chargedev.io",
+  description: "Peer-to-peer EV charging marketplace. Find home chargers near you or earn money by sharing your own socket.",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "All",
+  offers: {
+    "@type": "AggregateOffer",
+    priceCurrency: "EUR",
+    lowPrice: "5.00",
+    highPrice: "20.00",
+    offerCount: "4",
+  },
+};
 
 const PACKAGES = [
   { kwh: 20, label: "City hop", km: "~80 km", eur: "5.00" },
@@ -10,6 +34,7 @@ const PACKAGES = [
 export default function Landing() {
   return (
     <div className="min-h-screen">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       {/* Nav */}
       <nav className="border-b border-border px-6 lg:px-16 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
