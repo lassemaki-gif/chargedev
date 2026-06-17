@@ -56,13 +56,25 @@ export default function ChargerMap({ listings }: { listings: Listing[] }) {
         });
 
         marker.addEventListener("gmp-click", () => {
-          infoWindow.setContent(`
-            <div style="min-width:190px;padding:4px 2px">
-              <div style="font-weight:700;font-size:14px;margin-bottom:4px">${l.title}</div>
-              <div style="color:#555;font-size:12px;margin-bottom:8px">${l.charger_type} · ${l.max_power_kw} kW · €${l.price_per_kwh.toFixed(2)}/kWh</div>
-              <a href="/charge/${l.id}" style="display:inline-block;background:#22C55E;color:#0A0F1E;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none">Book →</a>
-            </div>
-          `);
+          // Build DOM nodes — never use innerHTML with user-supplied strings
+          const wrap = document.createElement("div");
+          wrap.style.cssText = "min-width:190px;padding:4px 2px";
+
+          const title = document.createElement("div");
+          title.textContent = l.title;
+          title.style.cssText = "font-weight:700;font-size:14px;margin-bottom:4px";
+
+          const detail = document.createElement("div");
+          detail.textContent = `${l.charger_type} · ${l.max_power_kw} kW · €${l.price_per_kwh.toFixed(2)}/kWh`;
+          detail.style.cssText = "color:#555;font-size:12px;margin-bottom:8px";
+
+          const link = document.createElement("a");
+          link.href = `/charge/${l.id}`;
+          link.textContent = "Book →";
+          link.style.cssText = "display:inline-block;background:#22C55E;color:#0A0F1E;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;text-decoration:none";
+
+          wrap.append(title, detail, link);
+          infoWindow.setContent(wrap);
           infoWindow.open({ anchor: marker, map });
         });
       });

@@ -8,12 +8,16 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
+import re
 import httpx
 import resend
 import stripe as stripe_lib
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +46,11 @@ async def lifespan(_: FastAPI):
 stripe_lib.api_key = settings.stripe_secret_key
 resend.api_key = settings.resend_api_key
 logger = logging.getLogger(__name__)
+
+if not settings.secret_key:
+    raise RuntimeError("SECRET_KEY env var is not set. Generate one with: openssl rand -hex 32")
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 async def geocode(address: str, city: str, country: str) -> tuple:
@@ -126,6 +135,8 @@ async def send_host_booking_email(host_email: str, host_name: str, booking: Book
         logger.error("Failed to send host booking email: %s", exc)
 
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 app.add_middleware(
     CORSMiddleware,
@@ -185,12 +196,13 @@ async def health() -> dict:
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/register", response_model=TokenResponse)
-async def register(body: RegisterRequest, session: AsyncSession = Depends(get_session)):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterRequest, session: AsyncSession = Depends(get_session)):
     if body.role not in ("buyer", "seller"):
         raise HTTPException(400, "role must be buyer or seller")
     existing = (await session.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if existing:
-        raise HTTPException(400, "Email already registered")
+        raise HTTPException(400, "Could not create account. If you already have one, please sign in.")
     user = User(
         email=body.email,
         hashed_password=hash_password(body.password),
@@ -209,7 +221,8 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
 
 
 @app.post("/api/auth/login", response_model=TokenResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest, session: AsyncSession = Depends(get_session)):
     user = (await session.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
@@ -288,7 +301,10 @@ async def update_profile(
     if body.phone is not None:
         current_user.phone = body.phone
     if body.iban is not None:
-        current_user.iban = body.iban.upper().replace(" ", "")
+        clean_iban = body.iban.upper().replace(" ", "").replace("-", "")
+        if not re.match(r'^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$', clean_iban):
+            raise HTTPException(422, "Invalid IBAN format")
+        current_user.iban = clean_iban
     await session.commit()
     await session.refresh(current_user)
     return current_user
