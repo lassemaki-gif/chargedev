@@ -127,6 +127,33 @@ export default function ChargerDetail() {
               ))}
             </div>
 
+            {/* Satellite + Street View */}
+            {listing.lat && listing.lng && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
+              <div className="mb-6">
+                <h2 className="font-semibold text-white mb-3">Location</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="overflow-hidden rounded-xl border border-border">
+                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">Aerial view</p>
+                    <img
+                      src={`https://maps.googleapis.com/maps/api/staticmap?center=${listing.lat},${listing.lng}&zoom=19&size=600x300&maptype=satellite&markers=color:0x22C55E%7C${listing.lat},${listing.lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`}
+                      alt="Aerial view"
+                      className="w-full h-40 object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                    />
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-border">
+                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">Street view</p>
+                    <img
+                      src={`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${listing.lat},${listing.lng}&fov=90&pitch=0&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`}
+                      alt="Street view"
+                      className="w-full h-40 object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {listing.description && (
               <div className="mb-6">
                 <h2 className="font-semibold text-white mb-2">About this charger</h2>
