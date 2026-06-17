@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +47,17 @@ logger = logging.getLogger(__name__)
 if not settings.secret_key:
     raise RuntimeError("SECRET_KEY env var is not set. Generate one with: openssl rand -hex 32")
 
-limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
+def real_ip(request: Request) -> str:
+    """Extract real client IP, checking proxy headers in priority order."""
+    for header in ("x-real-ip", "x-forwarded-for", "x-envoy-external-address"):
+        ip = request.headers.get(header)
+        if ip:
+            return ip.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+limiter = Limiter(key_func=real_ip, default_limits=[])
 
 
 async def geocode(address: str, city: str, country: str) -> tuple:
@@ -189,6 +198,17 @@ def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/debug/ip")
+async def debug_ip(request: Request) -> dict:
+    return {
+        "client_host": request.client.host if request.client else None,
+        "x_real_ip": request.headers.get("x-real-ip"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_envoy": request.headers.get("x-envoy-external-address"),
+        "resolved": real_ip(request),
+    }
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
