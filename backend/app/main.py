@@ -1,6 +1,4 @@
 """ChargedEV API — EV charging marketplace backend."""
-from __future__ import annotations
-
 import logging
 import random
 import string
