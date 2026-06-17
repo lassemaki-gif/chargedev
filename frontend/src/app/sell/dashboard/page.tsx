@@ -22,6 +22,7 @@ export default function SellerDashboard() {
   const [iban, setIban] = useState("");
   const [ibanSaving, setIbanSaving] = useState(false);
   const [ibanSaved, setIbanSaved] = useState(false);
+  const [completing, setCompleting] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
@@ -60,8 +61,15 @@ export default function SellerDashboard() {
   }
 
   async function complete(id: number) {
-    await api.completeBooking(id);
-    setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "completed" } : b));
+    setCompleting(id);
+    try {
+      await api.completeBooking(id);
+      setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "completed" } : b));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to mark complete");
+    } finally {
+      setCompleting(null);
+    }
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>;
@@ -170,12 +178,13 @@ export default function SellerDashboard() {
                       {b.paid_out && <span className="badge-green">Paid out</span>}
                     </div>
                   </div>
-                  {b.status === "confirmed" && (
+                  {(b.status === "confirmed" || b.status === "active") && (
                     <button
                       onClick={() => complete(b.id)}
-                      className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-volt/10 text-volt hover:bg-volt/20 transition-colors font-medium"
+                      disabled={completing === b.id}
+                      className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-volt/10 text-volt hover:bg-volt/20 transition-colors font-medium disabled:opacity-50"
                     >
-                      Mark complete
+                      {completing === b.id ? "Saving…" : "Mark complete"}
                     </button>
                   )}
                 </div>
