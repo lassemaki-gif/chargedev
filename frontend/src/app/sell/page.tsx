@@ -2,18 +2,26 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { api, saveToken, saveRole } from "@/lib/api";
+import { api, saveToken, saveRole, clearToken } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export default function SellLanding() {
   const router = useRouter();
   const [mode, setMode] = useState<"info" | "login" | "register">("info");
 
-  // If already logged in as seller/admin, go straight to dashboard
+  // If already logged in as seller/admin, verify token then go to dashboard
   useEffect(() => {
     const t = localStorage.getItem("ll_token");
     const r = localStorage.getItem("ll_role");
-    if (t && (r === "seller" || r === "admin")) router.replace("/sell/dashboard");
+    if (t && (r === "seller" || r === "admin")) {
+      api.me().then(() => {
+        router.replace("/sell/dashboard");
+      }).catch(() => {
+        // Token expired or invalid — clear it and show login
+        clearToken();
+        localStorage.removeItem("ll_role");
+      });
+    }
   }, [router]);
   const [form, setForm] = useState({ email: "", password: "", full_name: "", phone: "" });
   const [error, setError] = useState<string | null>(null);
