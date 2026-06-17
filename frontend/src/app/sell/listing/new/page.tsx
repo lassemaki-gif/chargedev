@@ -4,7 +4,7 @@ import { Nav } from "@/components/Nav";
 import { api } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
-const CHARGER_TYPES = ["3-phase", "Type 2", "CCS", "CHAdeMO"];
+const CHARGER_TYPES = ["3-phase", "Type 2", "CCS", "CHAdeMO", "CEE"];
 
 export default function NewListing() {
   const router = useRouter();
