@@ -35,6 +35,8 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_out BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS paid_out_at TIMESTAMP",
                     "ALTER TABLE listings ADD COLUMN IF NOT EXISTS availability_json TEXT",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_account_id VARCHAR(255)",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS stripe_transfer_id VARCHAR(255)",
                     """CREATE TABLE IF NOT EXISTS reviews (
                         id SERIAL PRIMARY KEY,
                         booking_id INTEGER UNIQUE NOT NULL REFERENCES bookings(id),

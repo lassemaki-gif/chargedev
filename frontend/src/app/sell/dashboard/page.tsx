@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, Listing, Booking, SellerEarnings } from "@/lib/api";
 import { useRouter } from "next/navigation";
@@ -14,16 +15,17 @@ function statusBadge(s: string) {
 
 export default function SellerDashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<SellerEarnings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [iban, setIban] = useState("");
-  const [ibanSaving, setIbanSaving] = useState(false);
-  const [ibanSaved, setIbanSaved] = useState(false);
+  const [stripeConnecting, setStripeConnecting] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
+
+  const stripeParam = searchParams.get("stripe");
 
   useEffect(() => {
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
@@ -31,7 +33,6 @@ export default function SellerDashboard() {
         setListings(l);
         setBookings(b);
         setEarnings(e);
-        setIban(e.iban ?? "");
       })
       .catch((e) => {
         const msg: string = e.message ?? "";
@@ -40,6 +41,17 @@ export default function SellerDashboard() {
       })
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function connectStripe() {
+    setStripeConnecting(true);
+    try {
+      const { url } = await api.stripeOnboard();
+      window.location.href = url;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to start Stripe onboarding");
+      setStripeConnecting(false);
+    }
+  }
 
   async function enableNotifications() {
     if (!("Notification" in window)) { alert("Your browser does not support notifications."); return; }
@@ -62,21 +74,6 @@ export default function SellerDashboard() {
     return () => clearInterval(interval);
   }
 
-  async function saveIban(e: React.FormEvent) {
-    e.preventDefault();
-    setIbanSaving(true);
-    try {
-      await api.updateProfile({ iban });
-      setIbanSaved(true);
-      setTimeout(() => setIbanSaved(false), 3000);
-      if (earnings) setEarnings({ ...earnings, iban });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save IBAN");
-    } finally {
-      setIbanSaving(false);
-    }
-  }
-
   async function toggle(id: number) {
     const res = await api.toggleListing(id);
     setListings((prev) => prev.map((l) => l.id === id ? { ...l, is_available: res.is_available } : l));
@@ -95,10 +92,6 @@ export default function SellerDashboard() {
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>;
-
-  const nextPayout = earnings?.next_payout_date
-    ? new Date(earnings.next_payout_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
-    : "—";
 
   return (
     <div>
@@ -122,40 +115,58 @@ export default function SellerDashboard() {
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
 
+        {stripeParam === "success" && (
+          <div className="bg-green-900/30 border border-green-700 text-green-400 rounded-lg px-4 py-3 text-sm mb-6">
+            Stripe account connected — you will now receive payouts automatically.
+          </div>
+        )}
+        {stripeParam === "refresh" && (
+          <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-400 rounded-lg px-4 py-3 text-sm mb-6">
+            Stripe onboarding was not completed. Please try again.
+          </div>
+        )}
+
         {/* Earnings */}
         {earnings && (
           <div className="grid sm:grid-cols-3 gap-4 mb-6">
             <div className="card border-volt/20">
-              <div className="text-ash text-sm mb-1">Pending payout</div>
+              <div className="text-ash text-sm mb-1">Pending transfer</div>
               <div className="text-2xl font-bold text-volt">€{earnings.pending_eur.toFixed(2)}</div>
-              <div className="text-ash text-xs mt-1">Next payout: {nextPayout}</div>
+              <div className="text-ash text-xs mt-1">Transferred immediately on payment</div>
             </div>
             <div className="card">
               <div className="text-ash text-sm mb-1">Total earned</div>
               <div className="text-2xl font-bold text-white">€{earnings.total_eur.toFixed(2)}</div>
             </div>
             <div className="card">
-              <div className="text-ash text-sm mb-1">Already paid out</div>
+              <div className="text-ash text-sm mb-1">Transferred to you</div>
               <div className="text-2xl font-bold text-white">€{earnings.paid_out_eur.toFixed(2)}</div>
             </div>
           </div>
         )}
 
-        {/* IBAN */}
+        {/* Stripe Connect */}
         <div className="card mb-10">
-          <h2 className="font-semibold text-white mb-1">Payout bank account</h2>
-          <p className="text-ash text-sm mb-4">We transfer your earnings to this IBAN on the 1st of each month.</p>
-          <form onSubmit={saveIban} className="flex gap-3">
-            <input
-              className="input flex-1 font-mono"
-              placeholder="FI00 0000 0000 0000 00"
-              value={iban}
-              onChange={(e) => setIban(e.target.value.toUpperCase())}
-            />
-            <button type="submit" disabled={ibanSaving} className="btn-volt text-sm px-5 shrink-0">
-              {ibanSaving ? "Saving…" : ibanSaved ? "Saved ✓" : "Save"}
-            </button>
-          </form>
+          <h2 className="font-semibold text-white mb-1">Payout account</h2>
+          {earnings?.stripe_onboarded ? (
+            <div className="flex items-center gap-3">
+              <span className="text-green-400 text-sm font-medium">Stripe connected</span>
+              <span className="text-ash text-xs">You receive 80% of each booking immediately after the guest pays.</span>
+            </div>
+          ) : (
+            <>
+              <p className="text-ash text-sm mb-4">
+                Connect your bank account via Stripe to receive 80% of each booking automatically, right when the guest pays.
+              </p>
+              <button
+                onClick={connectStripe}
+                disabled={stripeConnecting}
+                className="btn-volt text-sm px-6"
+              >
+                {stripeConnecting ? "Redirecting…" : "Connect with Stripe"}
+              </button>
+            </>
+          )}
         </div>
 
         {/* Listings */}
@@ -205,7 +216,7 @@ export default function SellerDashboard() {
                           PIN: {b.pin_code}
                         </span>
                       )}
-                      {b.paid_out && <span className="badge-green">Paid out</span>}
+                      {b.paid_out && <span className="badge-green">Transferred</span>}
                     </div>
                   </div>
                   {(b.status === "confirmed" || b.status === "active") && (

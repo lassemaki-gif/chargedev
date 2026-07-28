@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-import re
 import httpx
 import resend
 import stripe as stripe_lib
@@ -30,7 +29,8 @@ from .models import (
 from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
     LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
-    ReviewCreate, ReviewOut, SellerEarnings, TokenResponse, UserOut,
+    ReviewCreate, ReviewOut, SellerEarnings, StripeOnboardResponse,
+    StripeStatusResponse, TokenResponse, UserOut,
 )
 
 
@@ -207,6 +207,25 @@ def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
     )
 
 
+async def _transfer_to_host(booking: Booking, stripe_account_id: str, session: AsyncSession) -> None:
+    """Create an immediate Stripe Transfer of 80% to the host's connected account."""
+    try:
+        transfer = stripe_lib.Transfer.create(
+            amount=int(booking.seller_earnings_eur * 100),  # cents
+            currency="eur",
+            destination=stripe_account_id,
+            transfer_group=f"booking_{booking.id}",
+            description=f"ChargedEV booking #{booking.id} — host earnings",
+        )
+        booking.stripe_transfer_id = transfer.id
+        booking.paid_out = True
+        booking.paid_out_at = datetime.now(timezone.utc)
+        await session.commit()
+        logger.info("Transfer %s created for booking %d (€%.2f)", transfer.id, booking.id, booking.seller_earnings_eur)
+    except Exception as exc:
+        logger.error("Stripe transfer failed for booking %d: %s", booking.id, exc)
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
@@ -313,11 +332,6 @@ async def update_profile(
         current_user.full_name = body.full_name
     if body.phone is not None:
         current_user.phone = body.phone
-    if body.iban is not None:
-        clean_iban = body.iban.upper().replace(" ", "").replace("-", "")
-        if not re.match(r'^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$', clean_iban):
-            raise HTTPException(422, "Invalid IBAN format")
-        current_user.iban = clean_iban
     await session.commit()
     await session.refresh(current_user)
     return current_user
@@ -328,9 +342,6 @@ async def seller_earnings(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    from datetime import date
-    import calendar
-
     my_listing_ids = [
         r.id for r in (await session.execute(
             select(Listing.id).where(Listing.seller_id == current_user.id)
@@ -343,22 +354,23 @@ async def seller_earnings(
         )
     )).scalars().all()
 
-    pending = sum(b.seller_earnings_eur for b in bookings if not b.paid_out)
     paid = sum(b.seller_earnings_eur for b in bookings if b.paid_out)
+    pending = sum(b.seller_earnings_eur for b in bookings if not b.paid_out)
 
-    # Next payout = 1st of next month
-    today = date.today()
-    if today.month == 12:
-        next_payout = date(today.year + 1, 1, 1)
-    else:
-        next_payout = date(today.year, today.month + 1, 1)
+    stripe_onboarded = False
+    if current_user.stripe_account_id:
+        try:
+            acct = stripe_lib.Account.retrieve(current_user.stripe_account_id)
+            stripe_onboarded = acct.charges_enabled and acct.payouts_enabled
+        except Exception:
+            pass
 
     return SellerEarnings(
         pending_eur=round(pending, 2),
         paid_out_eur=round(paid, 2),
         total_eur=round(pending + paid, 2),
-        next_payout_date=next_payout.isoformat(),
-        iban=current_user.iban,
+        stripe_onboarded=stripe_onboarded,
+        stripe_account_id=current_user.stripe_account_id,
     )
 
 
@@ -558,43 +570,28 @@ async def admin_bookings(
     return result
 
 
-@app.put("/api/admin/sellers/{seller_id}/payout")
-async def admin_payout(
-    seller_id: int,
+@app.post("/api/admin/bookings/{booking_id}/retry-transfer")
+async def admin_retry_transfer(
+    booking_id: int,
     _: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Mark all completed, unpaid bookings for a seller as paid out."""
-    seller = await session.get(User, seller_id)
-    if not seller:
-        raise HTTPException(404, "Seller not found")
-
-    listing_ids = [
-        r.id for r in (await session.execute(
-            select(Listing.id).where(Listing.seller_id == seller_id)
-        )).all()
-    ]
-    rows = (await session.execute(
-        select(Booking).where(
-            Booking.listing_id.in_(listing_ids),
-            Booking.status == BookingStatus.completed,
-            Booking.paid_out == False,
-        )
-    )).scalars().all()
-
-    now = datetime.utcnow()
-    total = 0.0
-    for b in rows:
-        b.paid_out = True
-        b.paid_out_at = now
-        total += b.seller_earnings_eur
-    await session.commit()
-
+    """Retry a Stripe transfer for a booking where the automatic transfer failed."""
+    b = await session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    if b.paid_out and b.stripe_transfer_id:
+        return {"detail": "Already transferred", "transfer_id": b.stripe_transfer_id}
+    listing = await session.get(Listing, b.listing_id)
+    host = await session.get(User, listing.seller_id)
+    if not host or not host.stripe_account_id:
+        raise HTTPException(422, "Host has no Stripe Connect account")
+    await _transfer_to_host(b, host.stripe_account_id, session)
     return {
-        "seller": seller.full_name,
-        "iban": seller.iban,
-        "bookings_paid": len(rows),
-        "amount_eur": round(total, 2),
+        "booking_id": b.id,
+        "transfer_id": b.stripe_transfer_id,
+        "amount_eur": b.seller_earnings_eur,
+        "paid_out": b.paid_out,
     }
 
 
@@ -654,6 +651,55 @@ async def admin_confirm_booking(
     b.pin_code = _gen_pin()
     await session.commit()
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
+
+
+# ── Stripe Connect (host onboarding) ─────────────────────────────────────────
+
+@app.post("/api/seller/stripe/onboard", response_model=StripeOnboardResponse)
+async def stripe_onboard(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create or retrieve a Stripe Express account and return an onboarding link."""
+    if not current_user.stripe_account_id:
+        account = stripe_lib.Account.create(
+            type="express",
+            email=current_user.email,
+            capabilities={"transfers": {"requested": True}},
+            business_type="individual",
+        )
+        current_user.stripe_account_id = account.id
+        await session.commit()
+
+    link = stripe_lib.AccountLink.create(
+        account=current_user.stripe_account_id,
+        refresh_url=f"{settings.frontend_url}/sell/dashboard?stripe=refresh",
+        return_url=f"{settings.frontend_url}/sell/dashboard?stripe=success",
+        type="account_onboarding",
+    )
+    return StripeOnboardResponse(url=link.url)
+
+
+@app.get("/api/seller/stripe/status", response_model=StripeStatusResponse)
+async def stripe_status(
+    current_user: User = Depends(require_role("seller", "admin")),
+):
+    """Check whether the host's Stripe Connect account is fully onboarded."""
+    if not current_user.stripe_account_id:
+        return StripeStatusResponse(
+            onboarded=False, charges_enabled=False, payouts_enabled=False, account_id=None
+        )
+    try:
+        acct = stripe_lib.Account.retrieve(current_user.stripe_account_id)
+        return StripeStatusResponse(
+            onboarded=acct.charges_enabled and acct.payouts_enabled,
+            charges_enabled=acct.charges_enabled,
+            payouts_enabled=acct.payouts_enabled,
+            account_id=current_user.stripe_account_id,
+        )
+    except Exception as exc:
+        logger.error("Stripe account retrieve failed: %s", exc)
+        raise HTTPException(502, "Could not reach Stripe")
 
 
 # ── Stripe checkout ───────────────────────────────────────────────────────────
@@ -747,11 +793,18 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                     logger.info("Booking %d confirmed PIN=%s", booking_id, b.pin_code)
                     buyer = await session.get(User, b.buyer_id)
                     listing = await session.get(Listing, b.listing_id)
+                    host = await session.get(User, listing.seller_id) if listing else None
                     if buyer and listing:
                         await send_pin_email(buyer.email, buyer.full_name, b, listing)
-                        host = await session.get(User, listing.seller_id)
                         if host:
                             await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
+                    # Immediately transfer 80% to host's Stripe Connect account
+                    if host and host.stripe_account_id:
+                        await _transfer_to_host(b, host.stripe_account_id, session)
+                    else:
+                        logger.warning(
+                            "Booking %d: host has no Stripe account — transfer skipped", booking_id
+                        )
                 else:
                     logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
             else:
@@ -793,10 +846,11 @@ async def verify_checkout(
             logger.info("Booking %d confirmed via verify endpoint, PIN=%s", b.id, b.pin_code)
             listing = await session.get(Listing, b.listing_id)
             await send_pin_email(current_user.email, current_user.full_name, b, listing)
-            # Notify host
             host = await session.get(User, listing.seller_id)
             if host:
                 await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
+                if host.stripe_account_id and not b.stripe_transfer_id:
+                    await _transfer_to_host(b, host.stripe_account_id, session)
     except Exception as exc:
         logger.error("Stripe verify error: %s", exc)
 

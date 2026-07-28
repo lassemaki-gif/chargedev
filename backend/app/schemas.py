@@ -30,7 +30,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     phone: Optional[str]
-    iban: Optional[str]
+    stripe_account_id: Optional[str]
     role: str
     is_active: bool
     created_at: datetime
@@ -41,7 +41,6 @@ class UserOut(BaseModel):
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=2, max_length=120)
     phone: Optional[str] = Field(None, max_length=40)
-    iban: Optional[str] = Field(None, max_length=34)
 
 
 # ── Listings ──────────────────────────────────────────────────────────────────
@@ -138,8 +137,19 @@ class SellerEarnings(BaseModel):
     pending_eur: float
     paid_out_eur: float
     total_eur: float
-    next_payout_date: str
-    iban: Optional[str]
+    stripe_onboarded: bool
+    stripe_account_id: Optional[str]
+
+
+class StripeOnboardResponse(BaseModel):
+    url: str
+
+
+class StripeStatusResponse(BaseModel):
+    onboarded: bool
+    charges_enabled: bool
+    payouts_enabled: bool
+    account_id: Optional[str]
 
 
 # ── Admin stats ───────────────────────────────────────────────────────────────

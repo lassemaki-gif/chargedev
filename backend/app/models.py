@@ -44,7 +44,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(40))
-    iban: Mapped[Optional[str]] = mapped_column(String(34))
+    iban: Mapped[Optional[str]] = mapped_column(String(34))  # kept for legacy data, no longer used
+    stripe_account_id: Mapped[Optional[str]] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -105,6 +106,7 @@ class Booking(Base):
     platform_fee_eur: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), default=BookingStatus.pending)
     stripe_session_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
+    stripe_transfer_id: Mapped[Optional[str]] = mapped_column(String(255))
     pin_code: Mapped[Optional[str]] = mapped_column(String(6))
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
