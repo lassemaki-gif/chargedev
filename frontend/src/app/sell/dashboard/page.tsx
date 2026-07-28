@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
@@ -14,6 +14,14 @@ function statusBadge(s: string) {
 }
 
 export default function SellerDashboard() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>}>
+      <SellerDashboardInner />
+    </Suspense>
+  );
+}
+
+function SellerDashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [listings, setListings] = useState<Listing[]>([]);
@@ -92,7 +100,6 @@ export default function SellerDashboard() {
   }
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>;
-
   return (
     <div>
       <Nav />
