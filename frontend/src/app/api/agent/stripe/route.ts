@@ -1,5 +1,6 @@
-import { streamText, gateway, stepCountIs } from 'ai';
+import { streamText, stepCountIs } from 'ai';
 import type { ModelMessage } from 'ai';
+import { anthropic } from '@ai-sdk/anthropic';
 import { createStripeAgentToolkit } from '@stripe/agent-toolkit/ai-sdk';
 import type { StripeAgentToolkit } from '@stripe/agent-toolkit/ai-sdk';
 
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   const toolkit = await getToolkit();
 
   const result = streamText({
-    model: gateway('anthropic/claude-sonnet-4.6'),
+    model: anthropic('claude-sonnet-4-6-20251001'),
     system: SYSTEM,
     messages,
     tools: toolkit.getTools(),
