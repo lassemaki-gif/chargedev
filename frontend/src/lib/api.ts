@@ -74,6 +74,12 @@ export const api = {
   verifyCheckout: (sessionId: string) =>
     req<Booking>("GET", `/api/checkout/verify/${sessionId}`),
 
+  // Shelly (Premium hosts)
+  shellyConnect: (listingId: number, body: { device_id: string; auth_key: string; server: string }) =>
+    req<ShellyStatus>("POST", `/api/seller/shelly/${listingId}`, body),
+  shellyStatus: (listingId: number) => req<ShellyStatus>("GET", `/api/seller/shelly/${listingId}`),
+  shellyDisconnect: (listingId: number) => req<{ ok: boolean }>("DELETE", `/api/seller/shelly/${listingId}`),
+
   // Admin
   adminStats: () => req<PlatformStats>("GET", "/api/admin/stats"),
   adminUsers: () => req<User[]>("GET", "/api/admin/users"),
@@ -101,7 +107,17 @@ export interface Listing {
   availability_json?: string;
   avg_rating?: number;
   review_count?: number;
+  shelly_enabled?: boolean;
   created_at: string;
+}
+
+export interface ShellyStatus {
+  connected: boolean;
+  device_id?: string;
+  relay_on?: boolean;
+  power_w?: number;
+  energy_total_wh?: number;
+  error?: string;
 }
 
 export interface Booking {

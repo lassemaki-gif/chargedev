@@ -76,9 +76,25 @@ class ListingOut(BaseModel):
     availability_json: Optional[str]
     avg_rating: Optional[float] = None
     review_count: int = 0
+    shelly_enabled: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ShellyConfigRequest(BaseModel):
+    device_id: str
+    auth_key: str
+    server: str = "shelly-91-cloud.shelly.cloud"
+
+
+class ShellyStatusOut(BaseModel):
+    connected: bool
+    device_id: Optional[str] = None
+    relay_on: Optional[bool] = None
+    power_w: Optional[float] = None
+    energy_total_wh: Optional[float] = None
+    error: Optional[str] = None
 
 
 # ── Bookings ──────────────────────────────────────────────────────────────────

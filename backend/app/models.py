@@ -72,6 +72,10 @@ class Listing(Base):
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     instructions: Mapped[Optional[str]] = mapped_column(Text)
     availability_json: Mapped[Optional[str]] = mapped_column(Text)  # JSON weekly schedule
+    # Shelly smart device integration (Premium hosts)
+    shelly_device_id: Mapped[Optional[str]] = mapped_column(String(255))
+    shelly_auth_key: Mapped[Optional[str]] = mapped_column(String(255))
+    shelly_server: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     seller: Mapped[User] = relationship("User", back_populates="listings")
@@ -117,3 +121,20 @@ class Booking(Base):
 
     listing: Mapped[Listing] = relationship("Listing", back_populates="bookings")
     buyer: Mapped[User] = relationship("User", back_populates="bookings")
+
+
+class ShellySession(Base):
+    """Tracks an active Shelly-controlled charging session."""
+    __tablename__ = "shelly_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), unique=True, nullable=False)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), nullable=False)
+    device_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    server: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    energy_start_wh: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | error
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

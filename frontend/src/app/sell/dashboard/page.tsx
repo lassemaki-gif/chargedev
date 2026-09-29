@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
-import { api, Listing, Booking, SellerEarnings } from "@/lib/api";
+import { api, Listing, Booking, SellerEarnings, ShellyStatus } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 function statusBadge(s: string) {
@@ -32,6 +32,10 @@ function SellerDashboardInner() {
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
+  const [shellyOpen, setShellyOpen] = useState<number | null>(null);
+  const [shellyForm, setShellyForm] = useState({ device_id: "", auth_key: "", server: "shelly-91-cloud.shelly.cloud" });
+  const [shellyStatus, setShellyStatus] = useState<Record<number, ShellyStatus>>({});
+  const [shellySaving, setShellySaving] = useState(false);
 
   const stripeParam = searchParams.get("stripe");
 
@@ -85,6 +89,37 @@ function SellerDashboardInner() {
   async function toggle(id: number) {
     const res = await api.toggleListing(id);
     setListings((prev) => prev.map((l) => l.id === id ? { ...l, is_available: res.is_available } : l));
+  }
+
+  async function openShelly(l: Listing) {
+    setShellyOpen(l.id);
+    if (l.shelly_enabled) {
+      try {
+        const s = await api.shellyStatus(l.id);
+        setShellyStatus((prev) => ({ ...prev, [l.id]: s }));
+      } catch { /* ignore */ }
+    }
+  }
+
+  async function saveShelly(listingId: number) {
+    setShellySaving(true);
+    try {
+      const s = await api.shellyConnect(listingId, shellyForm);
+      setShellyStatus((prev) => ({ ...prev, [listingId]: s }));
+      setListings((prev) => prev.map((l) => l.id === listingId ? { ...l, shelly_enabled: true } : l));
+      setShellyOpen(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to connect Shelly device");
+    } finally {
+      setShellySaving(false);
+    }
+  }
+
+  async function disconnectShelly(listingId: number) {
+    await api.shellyDisconnect(listingId);
+    setListings((prev) => prev.map((l) => l.id === listingId ? { ...l, shelly_enabled: false } : l));
+    setShellyStatus((prev) => { const n = { ...prev }; delete n[listingId]; return n; });
+    setShellyOpen(null);
   }
 
   async function complete(id: number) {
@@ -186,17 +221,84 @@ function SellerDashboardInner() {
         ) : (
           <div className="space-y-3 mb-10">
             {listings.map((l) => (
-              <div key={l.id} className="card flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-semibold text-white truncate">{l.title}</div>
-                  <div className="text-ash text-sm">{l.address} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
+              <div key={l.id} className="card">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white truncate">{l.title}</span>
+                      {l.shelly_enabled && (
+                        <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-volt/10 text-volt border border-volt/20">⚡ Premium</span>
+                      )}
+                    </div>
+                    <div className="text-ash text-sm">{l.address} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => openShelly(l)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
+                    >
+                      {l.shelly_enabled ? "Shelly ✓" : "Shelly"}
+                    </button>
+                    <button
+                      onClick={() => toggle(l.id)}
+                      className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${l.is_available ? "bg-green-900/40 text-green-400 hover:bg-red-900/40 hover:text-red-400" : "bg-gray-800 text-gray-400 hover:bg-green-900/40 hover:text-green-400"}`}
+                    >
+                      {l.is_available ? "Available" : "Unavailable"}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => toggle(l.id)}
-                  className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${l.is_available ? "bg-green-900/40 text-green-400 hover:bg-red-900/40 hover:text-red-400" : "bg-gray-800 text-gray-400 hover:bg-green-900/40 hover:text-green-400"}`}
-                >
-                  {l.is_available ? "Available" : "Unavailable"}
-                </button>
+
+                {/* Shelly config panel */}
+                {shellyOpen === l.id && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    {l.shelly_enabled && shellyStatus[l.id] ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap text-sm">
+                          <span className={`font-medium ${shellyStatus[l.id].connected ? "text-volt" : "text-red-400"}`}>
+                            {shellyStatus[l.id].connected ? "● Online" : "● Offline"}
+                          </span>
+                          {shellyStatus[l.id].relay_on !== undefined && (
+                            <span className="text-ash">Relay: <span className="text-white">{shellyStatus[l.id].relay_on ? "ON" : "OFF"}</span></span>
+                          )}
+                          {shellyStatus[l.id].power_w !== undefined && (
+                            <span className="text-ash">Power: <span className="text-white">{shellyStatus[l.id].power_w?.toFixed(0)} W</span></span>
+                          )}
+                          {shellyStatus[l.id].energy_total_wh !== undefined && (
+                            <span className="text-ash">Total: <span className="text-white">{((shellyStatus[l.id].energy_total_wh ?? 0) / 1000).toFixed(2)} kWh</span></span>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => setShellyOpen(null)} className="btn-outline text-xs px-4 py-1.5">Close</button>
+                          <button onClick={() => disconnectShelly(l.id)} className="text-xs text-red-400 hover:text-red-300 px-3">Disconnect Shelly</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-ash text-sm">Connect a Shelly device (Pro 3EM, Plus 1PM, or similar) to enable auto-start and metered sessions.</p>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="label">Device ID</label>
+                            <input className="input text-sm" placeholder="e.g. shellyplus1pm-aabbcc" value={shellyForm.device_id} onChange={(e) => setShellyForm((f) => ({ ...f, device_id: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label className="label">Auth Key</label>
+                            <input className="input text-sm" type="password" placeholder="From Shelly Cloud → Settings → Auth key" value={shellyForm.auth_key} onChange={(e) => setShellyForm((f) => ({ ...f, auth_key: e.target.value }))} />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="label">Server</label>
+                            <input className="input text-sm" placeholder="shelly-91-cloud.shelly.cloud" value={shellyForm.server} onChange={(e) => setShellyForm((f) => ({ ...f, server: e.target.value }))} />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => saveShelly(l.id)} disabled={shellySaving || !shellyForm.device_id || !shellyForm.auth_key} className="btn-volt text-sm px-5 disabled:opacity-40">
+                            {shellySaving ? "Connecting…" : "Connect device"}
+                          </button>
+                          <button onClick={() => setShellyOpen(null)} className="btn-outline text-sm px-4">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

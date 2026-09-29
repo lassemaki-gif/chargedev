@@ -24,19 +24,136 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, Review, User, UserRole,
+    Booking, BookingStatus, Listing, PACKAGES_KWH, Review, ShellySession, User, UserRole,
 )
 from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
     LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
-    ReviewCreate, ReviewOut, SellerEarnings, StripeOnboardResponse,
-    StripeStatusResponse, TokenResponse, UserOut,
+    ReviewCreate, ReviewOut, SellerEarnings, ShellyConfigRequest, ShellyStatusOut,
+    StripeOnboardResponse, StripeStatusResponse, TokenResponse, UserOut,
 )
+
+
+# ── Shelly Cloud API client ───────────────────────────────────────────────────
+
+class ShellyClient:
+    """Thin wrapper around the Shelly Cloud HTTP API."""
+
+    def __init__(self, server: str, auth_key: str, device_id: str):
+        self._base = f"https://{server}"
+        self._key = auth_key
+        self._id = device_id
+
+    def _params(self) -> dict:
+        return {"id": self._id, "auth_key": self._key}
+
+    async def relay(self, on: bool, channel: int = 0) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(
+                    f"{self._base}/device/relay/control",
+                    data={**self._params(), "channel": channel, "turn": "on" if on else "off"},
+                )
+                return r.json().get("isok", False)
+        except Exception as exc:
+            logger.warning("Shelly relay error: %s", exc)
+            return False
+
+    async def status(self) -> dict | None:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post(f"{self._base}/device/status", data=self._params())
+                d = r.json()
+                return d.get("data", {}).get("device_status") if d.get("isok") else None
+        except Exception as exc:
+            logger.warning("Shelly status error: %s", exc)
+            return None
+
+
+def _shelly_energy_wh(ds: dict) -> float:
+    """Extract cumulative energy in Wh from device status, handling Gen1/Gen2/Gen3."""
+    for k, v in ds.items():
+        if k.startswith("switch:") and isinstance(v, dict):
+            total = v.get("aenergy", {}).get("total")
+            if total is not None:
+                return float(total)
+    if "emdata:0" in ds:
+        return float(ds["emdata:0"].get("total_act", 0))
+    if "em:0" in ds:
+        return float(ds["em:0"].get("total_act_energy", 0))
+    meters = ds.get("meters", [])
+    if meters:
+        return float(meters[0].get("total", 0))
+    return 0.0
+
+
+def _shelly_power_w(ds: dict) -> float:
+    for k, v in ds.items():
+        if k.startswith("switch:") and isinstance(v, dict):
+            return float(v.get("apower", 0))
+        if k.startswith("em:") and isinstance(v, dict):
+            return float(v.get("total_act_power", 0))
+    meters = ds.get("meters", [])
+    return float(meters[0].get("power", 0)) if meters else 0.0
+
+
+def _shelly_relay_on(ds: dict) -> bool:
+    for k, v in ds.items():
+        if k.startswith("switch:") and isinstance(v, dict):
+            return bool(v.get("output", False))
+    relays = ds.get("relays", [])
+    return bool(relays[0].get("ison", False)) if relays else False
+
+
+async def _shelly_poll_loop() -> None:
+    """Background task: poll active Shelly sessions and stop relay when target kWh reached."""
+    from .db import async_session
+    POLL_INTERVAL = 45  # seconds
+
+    while True:
+        await asyncio.sleep(POLL_INTERVAL)
+        try:
+            async with async_session() as sess:
+                sessions = (await sess.execute(
+                    select(ShellySession).where(ShellySession.status == "active")
+                )).scalars().all()
+
+            for s in sessions:
+                try:
+                    client = ShellyClient(s.server, s.auth_key, s.device_id)
+                    ds = await client.status()
+                    if ds is None:
+                        continue
+                    current_wh = _shelly_energy_wh(ds)
+                    consumed_wh = current_wh - s.energy_start_wh
+                    consumed_kwh = consumed_wh / 1000.0
+                    logger.info(
+                        "Shelly session %d: consumed=%.3f kWh target=%.1f kWh",
+                        s.id, consumed_kwh, s.target_kwh,
+                    )
+                    if consumed_kwh >= s.target_kwh:
+                        await client.relay(False)
+                        async with async_session() as sess:
+                            ss = await sess.get(ShellySession, s.id)
+                            if ss and ss.status == "active":
+                                ss.status = "completed"
+                                ss.stopped_at = datetime.now(timezone.utc)
+                                booking = await sess.get(Booking, ss.booking_id)
+                                if booking and booking.status == BookingStatus.confirmed:
+                                    booking.status = BookingStatus.completed
+                                    booking.completed_at = datetime.now(timezone.utc)
+                                await sess.commit()
+                            logger.info("Shelly session %d completed — relay off", s.id)
+                except Exception as exc:
+                    logger.warning("Shelly poll error session %d: %s", s.id, exc)
+        except Exception as exc:
+            logger.warning("Shelly poll loop error: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
+    asyncio.create_task(_shelly_poll_loop())
     yield
 
 
@@ -109,6 +226,34 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
         logger.error("Failed to send PIN email: %s", exc)
 
 
+async def _shelly_start_session(booking: Booking, listing: Listing) -> None:
+    """Turn on Shelly relay and create a session record. Fires as a background task."""
+    from .db import async_session
+    client = ShellyClient(listing.shelly_server, listing.shelly_auth_key, listing.shelly_device_id)
+    ds = await client.status()
+    energy_start = _shelly_energy_wh(ds) if ds else 0.0
+    ok = await client.relay(True)
+    if not ok:
+        logger.warning("Shelly relay ON failed for booking %d", booking.id)
+    async with async_session() as sess:
+        existing = (await sess.execute(
+            select(ShellySession).where(ShellySession.booking_id == booking.id)
+        )).scalar_one_or_none()
+        if not existing:
+            sess.add(ShellySession(
+                booking_id=booking.id,
+                listing_id=listing.id,
+                device_id=listing.shelly_device_id,
+                auth_key=listing.shelly_auth_key,
+                server=listing.shelly_server,
+                target_kwh=float(booking.package_kwh),
+                energy_start_wh=energy_start,
+                status="active",
+            ))
+            await sess.commit()
+    logger.info("Shelly session started for booking %d (start_wh=%.1f)", booking.id, energy_start)
+
+
 async def listing_out(r: Listing, seller_name: str, session: AsyncSession) -> ListingOut:
     """Build ListingOut including avg rating."""
     reviews = (await session.execute(
@@ -120,6 +265,7 @@ async def listing_out(r: Listing, seller_name: str, session: AsyncSession) -> Li
         seller_name=seller_name,
         avg_rating=avg,
         review_count=len(reviews),
+        shelly_enabled=bool(r.shelly_device_id),
     )
 
 
@@ -761,6 +907,76 @@ async def create_checkout(
     return {"checkout_url": checkout.url, "booking_id": booking.id}
 
 
+# ── Shelly Premium host endpoints ─────────────────────────────────────────────
+
+@app.post("/api/seller/shelly/{listing_id}")
+async def shelly_configure(
+    listing_id: int,
+    body: ShellyConfigRequest,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    # Validate by calling device status
+    client = ShellyClient(body.server, body.auth_key, body.device_id)
+    ds = await client.status()
+    if ds is None:
+        raise HTTPException(400, "Could not connect to Shelly device. Check device ID, auth key, and server.")
+    listing.shelly_device_id = body.device_id
+    listing.shelly_auth_key = body.auth_key
+    listing.shelly_server = body.server
+    await session.commit()
+    return ShellyStatusOut(
+        connected=True,
+        device_id=body.device_id,
+        relay_on=_shelly_relay_on(ds),
+        power_w=_shelly_power_w(ds),
+        energy_total_wh=_shelly_energy_wh(ds),
+    )
+
+
+@app.get("/api/seller/shelly/{listing_id}", response_model=ShellyStatusOut)
+async def shelly_status(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    if not listing.shelly_device_id:
+        return ShellyStatusOut(connected=False, error="No Shelly device configured")
+    client = ShellyClient(listing.shelly_server, listing.shelly_auth_key, listing.shelly_device_id)
+    ds = await client.status()
+    if ds is None:
+        return ShellyStatusOut(connected=False, device_id=listing.shelly_device_id, error="Device offline or unreachable")
+    return ShellyStatusOut(
+        connected=True,
+        device_id=listing.shelly_device_id,
+        relay_on=_shelly_relay_on(ds),
+        power_w=_shelly_power_w(ds),
+        energy_total_wh=_shelly_energy_wh(ds),
+    )
+
+
+@app.delete("/api/seller/shelly/{listing_id}")
+async def shelly_disconnect(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    listing.shelly_device_id = None
+    listing.shelly_auth_key = None
+    listing.shelly_server = None
+    await session.commit()
+    return {"ok": True}
+
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
     payload = await request.body()
@@ -805,6 +1021,9 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                         logger.warning(
                             "Booking %d: host has no Stripe account — transfer skipped", booking_id
                         )
+                    # Auto-start Shelly relay if listing has one configured
+                    if listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+                        asyncio.create_task(_shelly_start_session(b, listing))
                 else:
                     logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
             else:

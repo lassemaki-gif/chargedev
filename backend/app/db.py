@@ -46,6 +46,22 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         comment TEXT,
                         created_at TIMESTAMP DEFAULT NOW()
                     )""",
+                    "ALTER TABLE listings ADD COLUMN IF NOT EXISTS shelly_device_id VARCHAR(255)",
+                    "ALTER TABLE listings ADD COLUMN IF NOT EXISTS shelly_auth_key VARCHAR(255)",
+                    "ALTER TABLE listings ADD COLUMN IF NOT EXISTS shelly_server VARCHAR(255)",
+                    """CREATE TABLE IF NOT EXISTS shelly_sessions (
+                        id SERIAL PRIMARY KEY,
+                        booking_id INTEGER UNIQUE NOT NULL REFERENCES bookings(id),
+                        listing_id INTEGER NOT NULL REFERENCES listings(id),
+                        device_id VARCHAR(255) NOT NULL,
+                        auth_key VARCHAR(255) NOT NULL,
+                        server VARCHAR(255) NOT NULL,
+                        target_kwh FLOAT NOT NULL,
+                        energy_start_wh FLOAT NOT NULL DEFAULT 0,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        started_at TIMESTAMP DEFAULT NOW(),
+                        stopped_at TIMESTAMP
+                    )""",
                 ]
                 for sql in migrations:
                     try:
