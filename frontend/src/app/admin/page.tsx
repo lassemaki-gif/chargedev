@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Nav } from "@/components/Nav";
 import { api, PlatformStats, User, Listing, Booking, saveToken, saveRole } from "@/lib/api";
 
-type Tab = "overview" | "users" | "listings" | "bookings" | "payouts";
+type Tab = "overview" | "users" | "listings" | "bookings" | "payouts" | "agent";
+type AgentMessage = { role: "user" | "assistant"; content: string };
 
 function statusBadge(s: string) {
   if (s === "completed") return <span className="badge-green">Completed</span>;
@@ -23,6 +24,10 @@ export default function AdminDashboard() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
+  const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentInput, setAgentInput] = useState("");
+  const [agentStreaming, setAgentStreaming] = useState(false);
+  const agentBottomRef = useRef<HTMLDivElement>(null);
 
   async function adminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +61,45 @@ export default function AdminDashboard() {
     const role = typeof window !== "undefined" ? localStorage.getItem("ll_role") : null;
     if (token && role === "admin") { setAuthed(true); loadAll(); }
   }, []);
+
+  async function sendToAgent(e: React.FormEvent) {
+    e.preventDefault();
+    if (!agentInput.trim() || agentStreaming) return;
+    const userMsg: AgentMessage = { role: "user", content: agentInput.trim() };
+    const history = [...agentMessages, userMsg];
+    setAgentMessages([...history, { role: "assistant", content: "" }]);
+    setAgentInput("");
+    setAgentStreaming(true);
+    try {
+      const res = await fetch("/api/agent/stripe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        setAgentMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content: updated[updated.length - 1].content + chunk };
+          return updated;
+        });
+        agentBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    } catch (err) {
+      setAgentMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "assistant", content: err instanceof Error ? `Error: ${err.message}` : "Request failed." };
+        return updated;
+      });
+    } finally {
+      setAgentStreaming(false);
+    }
+  }
 
   async function toggleUser(id: number) {
     await api.toggleUser(id);
@@ -94,6 +138,7 @@ export default function AdminDashboard() {
     { key: "users", label: `Users (${users.length})` },
     { key: "listings", label: `Listings (${listings.length})` },
     { key: "bookings", label: `Bookings (${bookings.length})` },
+    { key: "agent", label: "Stripe agent" },
   ];
 
   return (
@@ -298,6 +343,47 @@ export default function AdminDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Stripe Agent */}
+        {tab === "agent" && (
+          <div className="flex flex-col h-[600px]">
+            <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
+              {agentMessages.length === 0 && (
+                <div className="text-ash text-sm">
+                  Ask about your Stripe balance, recent payments, refunds, transfers, or disputes.
+                </div>
+              )}
+              {agentMessages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] rounded-xl px-4 py-3 text-sm whitespace-pre-wrap ${
+                    m.role === "user"
+                      ? "bg-volt text-black"
+                      : "bg-surface border border-border text-white"
+                  }`}>
+                    {m.content || (m.role === "assistant" && agentStreaming ? <span className="animate-pulse text-ash">…</span> : "")}
+                  </div>
+                </div>
+              ))}
+              <div ref={agentBottomRef} />
+            </div>
+            <form onSubmit={sendToAgent} className="flex gap-3">
+              <input
+                className="input flex-1"
+                placeholder="e.g. What's the current balance? List recent charges."
+                value={agentInput}
+                onChange={(e) => setAgentInput(e.target.value)}
+                disabled={agentStreaming}
+              />
+              <button
+                type="submit"
+                disabled={agentStreaming || !agentInput.trim()}
+                className="btn-volt px-5 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {agentStreaming ? "…" : "Send"}
+              </button>
+            </form>
           </div>
         )}
       </div>

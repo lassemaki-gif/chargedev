@@ -9,7 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.100",
     "@googlemaps/js-api-loader": "^2.1.1",
+    "@stripe/agent-toolkit": "^0.9.0",
+    "ai": "^5.0.269",
     "next": "^16.2.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
