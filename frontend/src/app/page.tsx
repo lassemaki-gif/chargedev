@@ -196,13 +196,28 @@ export default function Landing() {
         <p className="text-ash text-xs mt-4">Prices shown at €0.25/kWh. Actual price set by each host. 20% platform fee applies.</p>
       </section>
 
+      {/* Payment trust strip */}
+      <section className="border-t border-border bg-card/50 px-6 lg:px-16 py-8">
+        <div className="flex flex-wrap items-center gap-6 lg:gap-12">
+          <div className="flex items-center gap-2.5 text-ash">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span className="text-sm">All payments secured by <span className="text-white font-medium">Stripe</span></span>
+          </div>
+          <div className="flex items-center gap-3">
+            {["Visa", "Mastercard", "Amex", "Apple Pay", "Google Pay"].map((brand) => (
+              <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5 whitespace-nowrap">{brand}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Trust */}
       <section className="border-t border-border px-6 lg:px-16 py-24">
         <div className="grid sm:grid-cols-3 gap-8 max-w-3xl">
           {[
             { icon: "🔐", t: "PIN-secured sessions", b: "Every booking generates a unique 6-digit PIN. No PIN, no charge." },
-            { icon: "💳", t: "Pay before you plug", b: "Buyers pay upfront. Hosts earn as soon as the session is confirmed." },
-            { icon: "🌍", t: "Built for global markets", b: "Starting in Finland, available anywhere with home EV charging." },
+            { icon: "⚡", t: "Instant confirmation", b: "Your PIN arrives the moment payment clears — no waiting, no back-and-forth." },
+            { icon: "🌍", t: "Available in 59 markets", b: "Starting in Finland, available anywhere with home EV charging." },
           ].map((f) => (
             <div key={f.t} className="flex flex-col gap-3">
               <span className="text-3xl">{f.icon}</span>
@@ -233,15 +248,26 @@ export default function Landing() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border px-6 lg:px-16 py-8 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-volt font-mono">⚡</span>
-          <span className="text-ash text-sm">ChargedEV</span>
-        </div>
-        <div className="flex gap-6 text-ash text-sm">
-          <Link href="/sell" className="hover:text-white transition-colors">Host</Link>
-          <Link href="/charge" className="hover:text-white transition-colors">Driver</Link>
-          <Link href="/admin" className="hover:text-white transition-colors">Admin</Link>
+      <footer className="border-t border-border px-6 lg:px-16 py-10">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-volt font-mono">⚡</span>
+              <span className="text-white font-semibold text-sm">ChargedEV</span>
+            </div>
+            <p className="text-ash text-xs">The peer-to-peer home charging network.</p>
+          </div>
+          <div className="flex flex-col sm:items-end gap-3">
+            <div className="flex gap-5 text-ash text-sm">
+              <Link href="/sell" className="hover:text-white transition-colors">For hosts</Link>
+              <Link href="/charge" className="hover:text-white transition-colors">Find a charger</Link>
+              <Link href="/admin" className="hover:text-white transition-colors">Admin</Link>
+            </div>
+            <div className="flex items-center gap-1.5 text-ash text-xs">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>Payments secured by <span className="text-white/70">Stripe</span></span>
+            </div>
+          </div>
         </div>
       </footer>
     </div>
