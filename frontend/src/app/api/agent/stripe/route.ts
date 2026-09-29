@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   const toolkit = await getToolkit();
 
   const result = streamText({
-    model: anthropic('claude-sonnet-4-6-20251001'),
+    model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM,
     messages,
     tools: toolkit.getTools(),
