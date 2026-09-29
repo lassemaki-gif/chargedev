@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { track } from "@vercel/analytics";
 import { Nav } from "@/components/Nav";
 import { StarRating } from "@/components/StarRating";
 import { AvailabilityGrid, WeeklyAvailability } from "@/components/AvailabilityGrid";
@@ -22,7 +23,10 @@ export default function ChargerDetail() {
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
-    api.listing(parseInt(id)).then(setListing).catch(() => router.push("/charge"));
+    api.listing(parseInt(id)).then((l) => {
+      setListing(l);
+      track("charger_viewed", { listing_id: l.id, city: l.city, country: l.country, charger_type: l.charger_type });
+    }).catch(() => router.push("/charge"));
     api.listingReviews(parseInt(id)).then(setReviews).catch(() => {});
   }, [id, router]);
 
@@ -51,6 +55,13 @@ export default function ChargerDetail() {
     if (!selectedPkg || !listing) return;
     setError(null);
     setLoading(true);
+    track("booking_initiated", {
+      listing_id: listing.id,
+      city: listing.city,
+      country: listing.country,
+      package_kwh: selectedPkg,
+      total_eur: parseFloat((selectedPkg * listing.price_per_kwh).toFixed(2)),
+    });
     try {
       const { checkout_url } = await api.checkout({
         listing_id: listing.id,

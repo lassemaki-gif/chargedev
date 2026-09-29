@@ -1,5 +1,6 @@
 "use client";
 import { Suspense, useEffect, useState, useCallback } from "react";
+import { track } from "@vercel/analytics";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, Booking } from "@/lib/api";
@@ -25,7 +26,15 @@ function SuccessContent() {
       try {
         // verify endpoint confirms payment with Stripe directly — no webhook needed
         const b = await api.verifyCheckout(sessionId);
-        if (b.pin_code) { setBooking(b); return; }
+        if (b.pin_code) {
+          setBooking(b);
+          track("booking_completed", {
+            listing_id: b.listing_id,
+            package_kwh: b.package_kwh,
+            total_eur: b.total_eur,
+          });
+          return;
+        }
         // PIN not yet available — fall back to polling
         let attempts = 0;
         const poll = async () => {
