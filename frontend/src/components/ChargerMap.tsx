@@ -6,6 +6,7 @@ import type { Listing } from "@/lib/api";
 export default function ChargerMap({ listings }: { listings: Listing[] }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
 
   useEffect(() => {
     const mapped = listings.filter((l) => l.lat && l.lng);
@@ -35,12 +36,21 @@ export default function ChargerMap({ listings }: { listings: Listing[] }) {
       const map = mapInstance.current!;
       const infoWindow = new InfoWindow();
 
+      // Clear previous markers before adding new ones
+      markersRef.current.forEach((m) => { m.map = null; });
+      markersRef.current = [];
+
       if (mapped.length > 1) {
         const bounds = new google.maps.LatLngBounds();
         mapped.forEach((l) => bounds.extend({ lat: l.lat!, lng: l.lng! }));
-        map.fitBounds(bounds, 60);
+        map.fitBounds(bounds, 80);
+        // Cap zoom so nearby chargers don't collapse to a single street
+        google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+          if ((map.getZoom() ?? 0) > 14) map.setZoom(14);
+        });
       } else {
         map.setCenter({ lat: mapped[0].lat!, lng: mapped[0].lng! });
+        map.setZoom(14);
       }
 
       mapped.forEach((l) => {
@@ -54,6 +64,7 @@ export default function ChargerMap({ listings }: { listings: Listing[] }) {
           title: l.title,
           content: pin,
         });
+        markersRef.current.push(marker);
 
         marker.addEventListener("gmp-click", () => {
           // Build DOM nodes — never use innerHTML with user-supplied strings
