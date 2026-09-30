@@ -74,14 +74,17 @@ export default function Landing() {
     <div className="min-h-screen">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       {/* Nav */}
-      <nav className="border-b border-border px-6 lg:px-16 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-volt font-mono text-xl">⚡</span>
-          <span className="font-semibold text-white text-lg tracking-tight">ChargedEV</span>
+      <nav className="border-b border-border px-4 sm:px-6 lg:px-16 h-14 sm:h-16 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-volt font-mono text-lg sm:text-xl">⚡</span>
+          <span className="font-semibold text-white text-base sm:text-lg tracking-tight">ChargedEV</span>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/charge" className="text-ash hover:text-white text-sm font-medium transition-colors">Find a charger</Link>
-          <Link href="/sell" className="btn-volt text-sm py-2 px-4">Become a host</Link>
+        <div className="flex items-center gap-2">
+          <Link href="/charge" className="hidden sm:block text-ash hover:text-white text-sm font-medium transition-colors px-2">Find a charger</Link>
+          <Link href="/sell" className="btn-volt text-sm py-1.5 px-3 sm:py-2 sm:px-4">
+            <span className="hidden sm:inline">Become a host</span>
+            <span className="sm:hidden">Host</span>
+          </Link>
         </div>
       </nav>
 

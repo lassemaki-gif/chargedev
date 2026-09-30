@@ -9,7 +9,7 @@ export function Nav() {
   const isAdmin = path.startsWith("/admin");
 
   return (
-    <nav className="border-b border-border px-6 lg:px-10 h-16 flex items-center justify-between">
+    <nav className="border-b border-border px-4 sm:px-6 lg:px-10 h-14 sm:h-16 flex items-center justify-between gap-3">
       <Link href="/" className="flex items-center gap-2">
         <span className="text-volt font-mono font-medium text-lg">⚡</span>
         <span className="font-semibold text-white tracking-tight">ChargedEV</span>
