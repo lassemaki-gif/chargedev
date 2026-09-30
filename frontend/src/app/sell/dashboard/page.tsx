@@ -58,6 +58,9 @@ function SellerDashboardInner() {
     setStripeConnecting(true);
     try {
       const { url } = await api.stripeOnboard();
+      if (!url.startsWith("https://connect.stripe.com/") && !url.startsWith("https://onboarding.stripe.com/")) {
+        throw new Error("Invalid onboarding URL");
+      }
       window.location.href = url;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to start Stripe onboarding");

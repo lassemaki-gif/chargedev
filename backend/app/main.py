@@ -1,8 +1,9 @@
 """ChargedEV API — EV charging marketplace backend."""
 import logging
-import random
+import secrets
 import string
 from contextlib import asynccontextmanager
+from html import escape as html_escape
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -212,8 +213,8 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
                 <p style="color:#22C55E;font-size:48px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
               </div>
               <table style="width:100%;font-size:14px;color:#555;border-collapse:collapse">
-                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Charger</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111">{listing.title}</td></tr>
-                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Address</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{listing.address}, {listing.city}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Charger</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111">{html_escape(listing.title)}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Address</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{html_escape(listing.address)}, {html_escape(listing.city)}</td></tr>
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Package</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{booking.package_kwh} kWh</td></tr>
                 <tr><td style="padding:6px 0">Total paid</td><td style="padding:6px 0;text-align:right;font-weight:700;color:#111">€{booking.total_eur:.2f}</td></tr>
               </table>
@@ -231,27 +232,36 @@ async def _shelly_start_session(booking: Booking, listing: Listing) -> None:
     from .db import async_session
     client = ShellyClient(listing.shelly_server, listing.shelly_auth_key, listing.shelly_device_id)
     ds = await client.status()
-    energy_start = _shelly_energy_wh(ds) if ds else 0.0
+    if ds is None:
+        logger.error("Shelly device offline for booking %d — cannot start session", booking.id)
+        async with async_session() as sess:
+            sess.add(ShellySession(
+                booking_id=booking.id, listing_id=listing.id,
+                device_id=listing.shelly_device_id, auth_key=listing.shelly_auth_key,
+                server=listing.shelly_server, target_kwh=float(booking.package_kwh),
+                energy_start_wh=0.0, status="error",
+            ))
+            await sess.commit()
+        return
+    energy_start = _shelly_energy_wh(ds)
     ok = await client.relay(True)
+    session_status = "active" if ok else "error"
     if not ok:
-        logger.warning("Shelly relay ON failed for booking %d", booking.id)
+        logger.error("Shelly relay ON failed for booking %d — session marked error", booking.id)
     async with async_session() as sess:
         existing = (await sess.execute(
             select(ShellySession).where(ShellySession.booking_id == booking.id)
         )).scalar_one_or_none()
         if not existing:
             sess.add(ShellySession(
-                booking_id=booking.id,
-                listing_id=listing.id,
-                device_id=listing.shelly_device_id,
-                auth_key=listing.shelly_auth_key,
-                server=listing.shelly_server,
-                target_kwh=float(booking.package_kwh),
-                energy_start_wh=energy_start,
-                status="active",
+                booking_id=booking.id, listing_id=listing.id,
+                device_id=listing.shelly_device_id, auth_key=listing.shelly_auth_key,
+                server=listing.shelly_server, target_kwh=float(booking.package_kwh),
+                energy_start_wh=energy_start, status=session_status,
             ))
             await sess.commit()
-    logger.info("Shelly session started for booking %d (start_wh=%.1f)", booking.id, energy_start)
+    if ok:
+        logger.info("Shelly session started for booking %d (start_wh=%.1f)", booking.id, energy_start)
 
 
 async def listing_out(r: Listing, seller_name: str, session: AsyncSession) -> ListingOut:
@@ -280,17 +290,17 @@ async def send_host_booking_email(host_email: str, host_name: str, booking: Book
             "html": f"""
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
               <h2 style="color:#22C55E;margin-bottom:4px">You have a new booking ⚡</h2>
-              <p style="color:#555">Hi {host_name}, someone has booked your charger and payment is confirmed.</p>
+              <p style="color:#555">Hi {html_escape(host_name)}, someone has booked your charger and payment is confirmed.</p>
               <div style="background:#0A0F1E;border-radius:12px;padding:24px;margin:24px 0">
                 <p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px">Session PIN</p>
                 <p style="color:#22C55E;font-size:40px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
                 <p style="color:#9CA3AF;font-size:12px;margin:8px 0 0">Share this PIN with the driver when they arrive.</p>
               </div>
               <table style="width:100%;font-size:14px;color:#555;border-collapse:collapse">
-                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Driver</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{buyer.full_name}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Driver</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{html_escape(buyer.full_name)}</td></tr>
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Package</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{booking.package_kwh} kWh</td></tr>
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Your earnings</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#22C55E">€{booking.seller_earnings_eur:.2f}</td></tr>
-                <tr><td style="padding:6px 0">Charger</td><td style="padding:6px 0;text-align:right;color:#111">{listing.address}, {listing.city}</td></tr>
+                <tr><td style="padding:6px 0">Charger</td><td style="padding:6px 0;text-align:right;color:#111">{html_escape(listing.address)}, {html_escape(listing.city)}</td></tr>
               </table>
               <p style="color:#555;font-size:14px;margin-top:20px">Once the session is done, mark it as complete in your <a href="https://chargedev.io/sell/dashboard" style="color:#22C55E">host dashboard</a>.</p>
               <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
@@ -316,17 +326,21 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error on %s: %s: %s", request.url.path, type(exc).__name__, exc, exc_info=True)
     origin = request.headers.get("origin", "")
-    logger.error("Unhandled error on %s: %s: %s", request.url.path, type(exc).__name__, exc)
+    safe_origin = origin if origin in settings.allowed_origins else ""
+    headers = {"Access-Control-Allow-Credentials": "true"}
+    if safe_origin:
+        headers["Access-Control-Allow-Origin"] = safe_origin
     return JSONResponse(
         status_code=500,
-        content={"detail": f"{type(exc).__name__}: {exc}"},
-        headers={"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Credentials": "true"},
+        content={"detail": "Internal server error"},
+        headers=headers,
     )
 
 
 def _gen_pin() -> str:
-    return "".join(random.choices(string.digits, k=6))
+    return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
 def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
@@ -362,6 +376,7 @@ async def _transfer_to_host(booking: Booking, stripe_account_id: str, session: A
             destination=stripe_account_id,
             transfer_group=f"booking_{booking.id}",
             description=f"ChargedEV booking #{booking.id} — host earnings",
+            idempotency_key=f"transfer_booking_{booking.id}",
         )
         booking.stripe_transfer_id = transfer.id
         booking.paid_out = True
@@ -586,41 +601,10 @@ async def complete_booking(
 
 # ── Buyer endpoints ───────────────────────────────────────────────────────────
 
-@app.post("/api/bookings", response_model=BookingOut)
-async def create_booking(
-    body: BookingCreate,
-    current_user: User = Depends(require_role("buyer", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    if body.package_kwh not in PACKAGES_KWH:
-        raise HTTPException(422, f"Package must be one of {PACKAGES_KWH} kWh")
-    listing = await session.get(Listing, body.listing_id)
-    if not listing or not listing.is_available:
-        raise HTTPException(404, "Listing not found or unavailable")
-
-    total = round(body.package_kwh * listing.price_per_kwh, 2)
-    fee = round(total * settings.platform_fee_pct, 2)
-    earnings = round(total - fee, 2)
-
-    booking = Booking(
-        listing_id=listing.id,
-        buyer_id=current_user.id,
-        package_kwh=body.package_kwh,
-        price_per_kwh=listing.price_per_kwh,
-        total_eur=total,
-        seller_earnings_eur=earnings,
-        platform_fee_eur=fee,
-        status=BookingStatus.confirmed,
-        pin_code=_gen_pin(),
-        scheduled_at=body.scheduled_at,
-        notes=body.notes,
-    )
-    session.add(booking)
-    await session.commit()
-    await session.refresh(booking)
-    booking.listing = listing
-    booking.buyer = current_user
-    return _booking_out(booking, show_pin=True)
+@app.post("/api/bookings")
+async def create_booking(_: Request):
+    # Deprecated: all bookings must go through /api/checkout → Stripe payment flow
+    raise HTTPException(410, "Use POST /api/checkout to create bookings")
 
 
 @app.get("/api/buyer/bookings", response_model=list[BookingOut])
@@ -861,6 +845,8 @@ async def create_checkout(
     listing = await session.get(Listing, body.listing_id)
     if not listing or not listing.is_available:
         raise HTTPException(404, "Listing not found or unavailable")
+    if listing.seller_id == current_user.id:
+        raise HTTPException(403, "You cannot book your own listing")
 
     total = round(body.package_kwh * listing.price_per_kwh, 2)
     fee = round(total * settings.platform_fee_pct, 2)
@@ -988,7 +974,7 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
         )
     except Exception as exc:
         logger.error("Webhook signature verification failed: %s", exc)
-        raise HTTPException(400, f"Webhook error: {exc}")
+        raise HTTPException(400, "Invalid webhook signature")
 
     event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", "unknown")
     logger.info("Stripe webhook received: type=%s", event_type)
@@ -1000,13 +986,17 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
             metadata = data_obj.get("metadata", {}) if isinstance(data_obj, dict) else (getattr(data_obj, "metadata", None) or {})
             booking_id = int(metadata.get("booking_id", 0))
             logger.info("checkout.session.completed booking_id=%s metadata=%s", booking_id, metadata)
+            # Cross-check session ID to prevent booking_id metadata tampering
+            session_id_from_event = data_obj.get("id", "") if isinstance(data_obj, dict) else getattr(data_obj, "id", "")
             if booking_id:
                 b = await session.get(Booking, booking_id)
-                if b and b.status == BookingStatus.pending:
+                if b and b.stripe_session_id != session_id_from_event:
+                    logger.warning("Booking %d session ID mismatch — ignoring event", booking_id)
+                elif b and b.status == BookingStatus.pending and not b.stripe_transfer_id:
                     b.status = BookingStatus.confirmed
                     b.pin_code = _gen_pin()
                     await session.commit()
-                    logger.info("Booking %d confirmed PIN=%s", booking_id, b.pin_code)
+                    logger.info("Booking %d confirmed via webhook", booking_id)
                     buyer = await session.get(User, b.buyer_id)
                     listing = await session.get(Listing, b.listing_id)
                     host = await session.get(User, listing.seller_id) if listing else None
@@ -1025,12 +1015,12 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                     if listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
                         asyncio.create_task(_shelly_start_session(b, listing))
                 else:
-                    logger.warning("Booking %d status=%s", booking_id, b.status if b else "NOT FOUND")
+                    logger.warning("Booking %d status=%s transfer=%s", booking_id, b.status if b else "NOT FOUND", b.stripe_transfer_id if b else None)
             else:
                 logger.warning("No booking_id in metadata: %s", metadata)
     except Exception as exc:
         logger.error("Webhook handler error: %s", exc, exc_info=True)
-        return JSONResponse({"received": True, "error": str(exc)})
+        return JSONResponse(status_code=500, content={"received": False})
 
     return JSONResponse({"received": True})
 
@@ -1058,18 +1048,20 @@ async def verify_checkout(
     # Ask Stripe directly — don't wait for webhook
     try:
         stripe_session = stripe_lib.checkout.Session.retrieve(session_id)
-        if stripe_session.payment_status == "paid" and b.status == BookingStatus.pending:
+        if stripe_session.payment_status == "paid" and b.status == BookingStatus.pending and not b.stripe_transfer_id:
             b.status = BookingStatus.confirmed
             b.pin_code = _gen_pin()
             await session.commit()
-            logger.info("Booking %d confirmed via verify endpoint, PIN=%s", b.id, b.pin_code)
+            logger.info("Booking %d confirmed via verify endpoint", b.id)
             listing = await session.get(Listing, b.listing_id)
             await send_pin_email(current_user.email, current_user.full_name, b, listing)
             host = await session.get(User, listing.seller_id)
             if host:
                 await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
-                if host.stripe_account_id and not b.stripe_transfer_id:
+                if host.stripe_account_id:
                     await _transfer_to_host(b, host.stripe_account_id, session)
+            if listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+                asyncio.create_task(_shelly_start_session(b, listing))
     except Exception as exc:
         logger.error("Stripe verify error: %s", exc)
 

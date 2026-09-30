@@ -71,9 +71,10 @@ export default function AdminDashboard() {
     setAgentInput("");
     setAgentStreaming(true);
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("ll_token") : null;
       const res = await fetch("/api/agent/stripe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ messages: history }),
       });
       if (!res.ok) throw new Error(await res.text());

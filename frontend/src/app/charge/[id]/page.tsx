@@ -68,6 +68,9 @@ export default function ChargerDetail() {
         package_kwh: selectedPkg,
         notes,
       });
+      if (!checkout_url.startsWith("https://checkout.stripe.com/")) {
+        throw new Error("Invalid checkout URL");
+      }
       window.location.href = checkout_url;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";

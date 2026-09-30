@@ -6,6 +6,21 @@ import { z } from 'zod';
 
 export const maxDuration = 60;
 
+const BACKEND = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
+
+async function requireAdmin(req: Request): Promise<Response | null> {
+  const auth = req.headers.get('authorization') ?? '';
+  if (!auth.startsWith('Bearer ')) return new Response('Unauthorized', { status: 401 });
+  const token = auth.slice(7);
+  const res = await fetch(`${BACKEND}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return new Response('Unauthorized', { status: 401 });
+  const user = await res.json();
+  if (user.role !== 'admin') return new Response('Forbidden', { status: 403 });
+  return null;
+}
+
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!);
 }
@@ -96,12 +111,17 @@ const tools = {
 };
 
 export async function POST(req: Request) {
+  const authError = await requireAdmin(req);
+  if (authError) return authError;
+
   const { messages }: { messages: ModelMessage[] } = await req.json();
+  // Only accept user-role messages from client to prevent prompt injection
+  const safeMessages = messages.filter((m) => m.role === 'user') as ModelMessage[];
 
   const result = streamText({
     model: anthropic('claude-sonnet-4-6'),
     system: SYSTEM,
-    messages,
+    messages: safeMessages,
     tools,
     stopWhen: stepCountIs(5),
   });

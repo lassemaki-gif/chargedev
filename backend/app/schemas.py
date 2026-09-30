@@ -1,6 +1,9 @@
+import re
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+_SHELLY_HOST_RE = re.compile(r'^[a-z0-9-]+\.shelly\.cloud$')
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -87,6 +90,13 @@ class ShellyConfigRequest(BaseModel):
     auth_key: str
     server: str = "shelly-91-cloud.shelly.cloud"
 
+    @field_validator("server")
+    @classmethod
+    def validate_server(cls, v: str) -> str:
+        if not _SHELLY_HOST_RE.match(v):
+            raise ValueError("server must be a valid Shelly Cloud hostname (*.shelly.cloud)")
+        return v
+
 
 class ShellyStatusOut(BaseModel):
     connected: bool
@@ -103,7 +113,7 @@ class BookingCreate(BaseModel):
     listing_id: int
     package_kwh: int = Field(ge=20, le=80)
     scheduled_at: Optional[datetime] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=500)
 
 
 class BookingOut(BaseModel):
