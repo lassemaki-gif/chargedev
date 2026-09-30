@@ -1,8 +1,10 @@
 """ChargedEV API — EV charging marketplace backend."""
+import asyncio
 import logging
 import secrets
 import string
 from contextlib import asynccontextmanager
+from decimal import Decimal, ROUND_HALF_UP
 from html import escape as html_escape
 from datetime import datetime, timezone
 from typing import Optional
@@ -32,6 +34,7 @@ from .schemas import (
     LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
     ReviewCreate, ReviewOut, SellerEarnings, ShellyConfigRequest, ShellyStatusOut,
     StripeOnboardResponse, StripeStatusResponse, TokenResponse, UserOut,
+    WeeklyAvailabilitySchema,
 )
 
 
@@ -60,7 +63,7 @@ class ShellyClient:
             logger.warning("Shelly relay error: %s", exc)
             return False
 
-    async def status(self) -> dict | None:
+    async def status(self) -> Optional[dict]:
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 r = await c.post(f"{self._base}/device/status", data=self._params())
@@ -119,34 +122,39 @@ async def _shelly_poll_loop() -> None:
                     select(ShellySession).where(ShellySession.status == "active")
                 )).scalars().all()
 
-            for s in sessions:
-                try:
-                    client = ShellyClient(s.server, s.auth_key, s.device_id)
-                    ds = await client.status()
-                    if ds is None:
-                        continue
-                    current_wh = _shelly_energy_wh(ds)
-                    consumed_wh = current_wh - s.energy_start_wh
-                    consumed_kwh = consumed_wh / 1000.0
-                    logger.info(
-                        "Shelly session %d: consumed=%.3f kWh target=%.1f kWh",
-                        s.id, consumed_kwh, s.target_kwh,
-                    )
-                    if consumed_kwh >= s.target_kwh:
-                        await client.relay(False)
-                        async with async_session() as sess:
-                            ss = await sess.get(ShellySession, s.id)
-                            if ss and ss.status == "active":
-                                ss.status = "completed"
-                                ss.stopped_at = datetime.now(timezone.utc)
-                                booking = await sess.get(Booking, ss.booking_id)
-                                if booking and booking.status == BookingStatus.confirmed:
-                                    booking.status = BookingStatus.completed
-                                    booking.completed_at = datetime.now(timezone.utc)
-                                await sess.commit()
-                            logger.info("Shelly session %d completed — relay off", s.id)
-                except Exception as exc:
-                    logger.warning("Shelly poll error session %d: %s", s.id, exc)
+            sem = asyncio.Semaphore(5)
+
+            async def _poll_one(s):
+                async with sem:
+                    try:
+                        client = ShellyClient(s.server, s.auth_key, s.device_id)
+                        ds = await client.status()
+                        if ds is None:
+                            return
+                        current_wh = _shelly_energy_wh(ds)
+                        consumed_wh = current_wh - s.energy_start_wh
+                        consumed_kwh = consumed_wh / 1000.0
+                        logger.info(
+                            "Shelly session %d: consumed=%.3f kWh target=%.1f kWh",
+                            s.id, consumed_kwh, s.target_kwh,
+                        )
+                        if consumed_kwh >= s.target_kwh:
+                            await client.relay(False)
+                            async with async_session() as sess:
+                                ss = await sess.get(ShellySession, s.id)
+                                if ss and ss.status == "active":
+                                    ss.status = "completed"
+                                    ss.stopped_at = datetime.now(timezone.utc)
+                                    booking = await sess.get(Booking, ss.booking_id)
+                                    if booking and booking.status == BookingStatus.confirmed:
+                                        booking.status = BookingStatus.completed
+                                        booking.completed_at = datetime.now(timezone.utc)
+                                    await sess.commit()
+                                logger.info("Shelly session %d completed — relay off", s.id)
+                    except Exception as exc:
+                        logger.warning("Shelly poll error session %d: %s", s.id, exc)
+
+            await asyncio.gather(*[_poll_one(s) for s in sessions])
         except Exception as exc:
             logger.warning("Shelly poll loop error: %s", exc)
 
@@ -339,6 +347,14 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
+def _calc_amounts(package_kwh: int, price_per_kwh: float) -> tuple[float, float, float]:
+    """Return (total_eur, fee_eur, earnings_eur) using Decimal to avoid float rounding errors."""
+    total = (Decimal(str(package_kwh)) * Decimal(str(price_per_kwh))).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    fee = (total * Decimal(str(settings.platform_fee_pct))).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    earnings = (total - fee).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    return float(total), float(fee), float(earnings)
+
+
 def _gen_pin() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
@@ -438,6 +454,14 @@ async def login(request: Request, body: LoginRequest, session: AsyncSession = De
 @app.get("/api/auth/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@app.post("/api/auth/logout")
+async def logout():
+    """Invalidate session by clearing the auth cookie (no server-side token store)."""
+    response = JSONResponse({"ok": True})
+    response.delete_cookie("ll_token", path="/", samesite="strict")
+    return response
 
 
 # ── Listings (public) ─────────────────────────────────────────────────────────
@@ -593,8 +617,10 @@ async def complete_booking(
     listing = await session.get(Listing, b.listing_id)
     if listing.seller_id != current_user.id:
         raise HTTPException(403, "Not your listing")
+    if b.status not in (BookingStatus.confirmed, BookingStatus.active):
+        raise HTTPException(400, f"Booking must be confirmed or active to complete (current: {b.status})")
     b.status = BookingStatus.completed
-    b.completed_at = datetime.utcnow()
+    b.completed_at = datetime.now(timezone.utc)
     await session.commit()
     return {"status": "completed"}
 
@@ -848,9 +874,7 @@ async def create_checkout(
     if listing.seller_id == current_user.id:
         raise HTTPException(403, "You cannot book your own listing")
 
-    total = round(body.package_kwh * listing.price_per_kwh, 2)
-    fee = round(total * settings.platform_fee_pct, 2)
-    earnings = round(total - fee, 2)
+    total, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)
 
     # Create pending booking (no PIN yet — assigned after payment)
     booking = Booking(
@@ -896,7 +920,9 @@ async def create_checkout(
 # ── Shelly Premium host endpoints ─────────────────────────────────────────────
 
 @app.post("/api/seller/shelly/{listing_id}")
+@limiter.limit("10/minute")
 async def shelly_configure(
+    request: Request,
     listing_id: int,
     body: ShellyConfigRequest,
     current_user: User = Depends(require_role("seller", "admin")),
@@ -1048,6 +1074,9 @@ async def verify_checkout(
     # Ask Stripe directly — don't wait for webhook
     try:
         stripe_session = stripe_lib.checkout.Session.retrieve(session_id)
+        # Verify the Stripe session ID matches the booking
+        if stripe_session.get("id") != session_id:
+            raise HTTPException(400, "Session ID mismatch")
         if stripe_session.payment_status == "paid" and b.status == BookingStatus.pending and not b.stripe_transfer_id:
             b.status = BookingStatus.confirmed
             b.pin_code = _gen_pin()
@@ -1163,7 +1192,7 @@ async def seller_reviews(
 @app.put("/api/seller/listings/{listing_id}/availability")
 async def set_availability(
     listing_id: int,
-    body: dict,
+    body: WeeklyAvailabilitySchema,
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
@@ -1171,7 +1200,7 @@ async def set_availability(
     listing = await session.get(Listing, listing_id)
     if not listing or listing.seller_id != current_user.id:
         raise HTTPException(404, "Listing not found")
-    listing.availability_json = _json.dumps(body)
+    listing.availability_json = _json.dumps(body.model_dump(exclude_none=True))
     await session.commit()
     return {"ok": True}
 
@@ -1184,8 +1213,7 @@ async def new_bookings_since(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    from datetime import datetime as dt
-    since_dt = dt.utcfromtimestamp(since)
+    since_dt = datetime.fromtimestamp(since, tz=timezone.utc)
     listing_ids = [
         r.id for r in (await session.execute(
             select(Listing.id).where(Listing.seller_id == current_user.id)

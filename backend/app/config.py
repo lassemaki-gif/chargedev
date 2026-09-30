@@ -16,8 +16,7 @@ class Settings(BaseSettings):
             return url.replace("postgresql://", "postgresql+asyncpg://", 1)
         return url
     secret_key: str = ""
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
+    access_token_expire_minutes: int = 60  # 1 hour
 
     platform_fee_pct: float = 0.20  # 20%
     default_price_per_kwh: float = 0.25  # EUR
@@ -37,3 +36,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+JWT_ALGORITHM: str = "HS256"

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { api, PlatformStats, User, Listing, Booking, saveToken, saveRole } from "@/lib/api";
+import { api, PlatformStats, User, Listing, Booking, saveRole } from "@/lib/api";
 
 type Tab = "overview" | "users" | "listings" | "bookings" | "payouts" | "agent";
 type AgentMessage = { role: "user" | "assistant"; content: string };
@@ -35,7 +35,6 @@ export default function AdminDashboard() {
     try {
       const res = await api.login(loginForm.email, loginForm.password);
       if (res.role !== "admin") { setLoginError("Not an admin account"); return; }
-      saveToken(res.access_token);
       saveRole(res.role);
       setAuthed(true);
       loadAll();
@@ -57,9 +56,8 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("ll_token") : null;
     const role = typeof window !== "undefined" ? localStorage.getItem("ll_role") : null;
-    if (token && role === "admin") { setAuthed(true); loadAll(); }
+    if (role === "admin") { setAuthed(true); loadAll(); }
   }, []);
 
   async function sendToAgent(e: React.FormEvent) {
@@ -71,10 +69,10 @@ export default function AdminDashboard() {
     setAgentInput("");
     setAgentStreaming(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("ll_token") : null;
       const res = await fetch("/api/agent/stripe", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ messages: history }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -325,10 +323,9 @@ export default function AdminDashboard() {
                     {b.status === "pending" && (
                       <button
                         onClick={async () => {
-                          const token = localStorage.getItem("ll_token");
-                          const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000"}/api/admin/bookings/${b.id}/confirm`, {
+                          const res = await fetch(`/api/proxy/api/admin/bookings/${b.id}/confirm`, {
                             method: "PUT",
-                            headers: { Authorization: `Bearer ${token}` },
+                            credentials: "include",
                           });
                           const data = await res.json();
                           if (data.pin_code) {

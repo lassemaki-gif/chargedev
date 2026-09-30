@@ -62,6 +62,7 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         started_at TIMESTAMP DEFAULT NOW(),
                         stopped_at TIMESTAMP
                     )""",
+                    "UPDATE users SET iban = NULL WHERE iban IS NOT NULL",
                 ]
                 for sql in migrations:
                     try:

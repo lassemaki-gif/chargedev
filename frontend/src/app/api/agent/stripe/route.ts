@@ -1,6 +1,7 @@
 import { streamText, stepCountIs, tool, zodSchema } from 'ai';
 import type { ModelMessage } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { cookies } from 'next/headers';
 import Stripe from 'stripe';
 import { z } from 'zod';
 
@@ -8,10 +9,10 @@ export const maxDuration = 60;
 
 const BACKEND = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 
-async function requireAdmin(req: Request): Promise<Response | null> {
-  const auth = req.headers.get('authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) return new Response('Unauthorized', { status: 401 });
-  const token = auth.slice(7);
+async function requireAdmin(): Promise<Response | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('ll_token')?.value;
+  if (!token) return new Response('Unauthorized', { status: 401 });
   const res = await fetch(`${BACKEND}/api/auth/me`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -111,7 +112,7 @@ const tools = {
 };
 
 export async function POST(req: Request) {
-  const authError = await requireAdmin(req);
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { messages }: { messages: ModelMessage[] } = await req.json();

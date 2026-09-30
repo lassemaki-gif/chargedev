@@ -4,7 +4,7 @@ import { track } from "@vercel/analytics";
 import { Nav } from "@/components/Nav";
 import { StarRating } from "@/components/StarRating";
 import { AvailabilityGrid, WeeklyAvailability } from "@/components/AvailabilityGrid";
-import { api, Listing, PACKAGES, Review_, saveToken, saveRole } from "@/lib/api";
+import { api, Listing, PACKAGES, Review_, saveRole } from "@/lib/api";
 import { useRouter, useParams } from "next/navigation";
 
 export default function ChargerDetail() {
@@ -41,7 +41,6 @@ export default function ChargerDetail() {
       const res = mode === "register"
         ? await api.register({ ...authForm, role: "buyer" })
         : await api.login(authForm.email, authForm.password);
-      saveToken(res.access_token);
       saveRole(res.role);
       setMode("view");
     } catch (err: unknown) {

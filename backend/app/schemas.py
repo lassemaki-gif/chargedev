@@ -107,6 +107,21 @@ class ShellyStatusOut(BaseModel):
     error: Optional[str] = None
 
 
+class DayAvailability(BaseModel):
+    enabled: bool = True
+    start: Optional[str] = Field(None, pattern=r'^\d{2}:\d{2}$')
+    end: Optional[str] = Field(None, pattern=r'^\d{2}:\d{2}$')
+
+class WeeklyAvailabilitySchema(BaseModel):
+    mon: Optional[DayAvailability] = None
+    tue: Optional[DayAvailability] = None
+    wed: Optional[DayAvailability] = None
+    thu: Optional[DayAvailability] = None
+    fri: Optional[DayAvailability] = None
+    sat: Optional[DayAvailability] = None
+    sun: Optional[DayAvailability] = None
+
+
 # ── Bookings ──────────────────────────────────────────────────────────────────
 
 class BookingCreate(BaseModel):

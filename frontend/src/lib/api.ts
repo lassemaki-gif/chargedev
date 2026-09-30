@@ -1,23 +1,42 @@
-const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const PROXY = '/api/proxy';
+export const BACKEND = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 
-function token(): string | null {
+export function getRole(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("ll_token");
+  return localStorage.getItem("ll_role");
 }
-
-export function saveToken(t: string) { localStorage.setItem("ll_token", t); }
-export function clearToken() { localStorage.removeItem("ll_token"); }
-export function getRole(): string | null { return localStorage.getItem("ll_role"); }
 export function saveRole(r: string) { localStorage.setItem("ll_role", r); }
+export function clearRole() { localStorage.removeItem("ll_role"); }
+
+// Kept for backward compat but no longer stores sensitive token
+export function saveToken(_t: string) { /* token is now in httpOnly cookie */ }
+export function clearToken() {
+  clearRole();
+  fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+}
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const t = token();
-  if (t) headers["Authorization"] = `Bearer ${t}`;
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${PROXY}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail));
+  }
+  return res.json();
+}
+
+async function authReq<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include',
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -27,15 +46,16 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const api = {
-  // Auth
+  // Auth (go directly to Next.js auth routes, not through proxy)
   register: (body: { email: string; password: string; full_name: string; phone?: string; role: string }) =>
-    req<{ access_token: string; role: string; full_name: string }>("POST", "/api/auth/register", body),
+    authReq<{ role: string; full_name: string }>("POST", "/api/auth/register", body),
   login: (email: string, password: string) =>
-    req<{ access_token: string; role: string; full_name: string }>("POST", "/api/auth/login", { email, password }),
+    authReq<{ role: string; full_name: string }>("POST", "/api/auth/login", { email, password }),
+  logout: () => fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }),
   me: () => req<{ id: number; email: string; full_name: string; role: string }>("GET", "/api/auth/me"),
 
   // Public listings
-  listings: (city?: string) => req<Listing[]>("GET", `/api/listings${city ? `?city=${city}` : ""}`),
+  listings: (city?: string) => req<Listing[]>("GET", `/api/listings${city ? `?city=${encodeURIComponent(city)}` : ""}`),
   listing: (id: number) => req<Listing>("GET", `/api/listings/${id}`),
 
   // Seller

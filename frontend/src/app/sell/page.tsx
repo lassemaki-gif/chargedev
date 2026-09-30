@@ -2,24 +2,22 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { api, saveToken, saveRole, clearToken } from "@/lib/api";
+import { api, saveRole, getRole, clearToken } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export default function SellLanding() {
   const router = useRouter();
   const [mode, setMode] = useState<"info" | "login" | "register">("info");
 
-  // If already logged in as seller/admin, verify token then go to dashboard
+  // If already logged in as seller/admin, verify cookie then go to dashboard
   useEffect(() => {
-    const t = localStorage.getItem("ll_token");
-    const r = localStorage.getItem("ll_role");
-    if (t && (r === "seller" || r === "admin")) {
+    const r = getRole();
+    if (r === "seller" || r === "admin") {
       api.me().then(() => {
         router.replace("/sell/dashboard");
       }).catch(() => {
-        // Token expired or invalid — clear it and show login
+        // Token expired or invalid — clear role and show login
         clearToken();
-        localStorage.removeItem("ll_role");
       });
     }
   }, [router]);
@@ -37,7 +35,6 @@ export default function SellLanding() {
       const res = mode === "register"
         ? await api.register({ ...form, role: "seller" })
         : await api.login(form.email, form.password);
-      saveToken(res.access_token);
       saveRole(res.role);
       router.push("/sell/dashboard");
     } catch (err: unknown) {

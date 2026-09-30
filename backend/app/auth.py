@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from .config import settings
+from .config import settings, JWT_ALGORITHM
 from .db import get_session
 from .models import User
 
@@ -28,7 +28,7 @@ def create_access_token(user_id: int, role: str) -> str:
     return jwt.encode(
         {"sub": str(user_id), "role": role, "exp": expire},
         settings.secret_key,
-        algorithm=settings.algorithm,
+        algorithm=JWT_ALGORITHM,
     )
 
 
@@ -39,7 +39,7 @@ async def get_current_user(
     if not credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
-        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=[JWT_ALGORITHM])
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
