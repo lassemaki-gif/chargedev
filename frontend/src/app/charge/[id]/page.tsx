@@ -124,32 +124,32 @@ export default function ChargerDetail() {
   return (
     <div>
       <Nav />
-      <div className="px-6 lg:px-16 py-12 max-w-4xl">
-        <button onClick={() => router.back()} className="text-ash text-sm hover:text-white mb-6 flex items-center gap-2">← Back</button>
+      <div className="px-4 sm:px-6 lg:px-16 py-6 sm:py-12 max-w-4xl">
+        <button onClick={() => router.back()} className="text-ash text-sm hover:text-white mb-4 sm:mb-6 flex items-center gap-2">← Back</button>
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-8">
+        <div className="grid lg:grid-cols-[1fr_360px] gap-6 lg:gap-8">
           {/* Left: Info */}
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">{listing.title}</h1>
-            <p className="text-ash mb-1">{listing.address}, {listing.city}, {listing.country}</p>
-            <div className="flex items-center gap-3 mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 leading-tight">{listing.title}</h1>
+            <p className="text-ash text-sm mb-1 line-clamp-2">{listing.address}, {listing.city}, {listing.country}</p>
+            <div className="flex flex-wrap items-center gap-2 mb-5 sm:mb-6">
               <p className="text-ash text-sm">Hosted by {listing.seller_name}</p>
               {listing.shelly_enabled && (
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-volt/10 text-volt border border-volt/20">
-                  ⚡ Auto-start · Metered
+                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-volt/10 text-volt border border-volt/20">
+                  ⚡ Auto-start
                 </span>
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 mb-8">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
               {[
-                { label: "Charger type", value: listing.charger_type },
+                { label: "Type", value: listing.charger_type },
                 { label: "Max power", value: `${listing.max_power_kw} kW` },
                 { label: "Price", value: `€${listing.price_per_kwh.toFixed(2)}/kWh` },
               ].map((i) => (
-                <div key={i.label} className="card text-center">
+                <div key={i.label} className="card text-center !p-3 sm:!p-4">
                   <div className="text-ash text-xs mb-1">{i.label}</div>
-                  <div className="font-semibold text-white text-sm">{i.value}</div>
+                  <div className="font-semibold text-white text-xs sm:text-sm">{i.value}</div>
                 </div>
               ))}
             </div>
@@ -158,7 +158,7 @@ export default function ChargerDetail() {
             {listing.lat && listing.lng && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
               <div className="mb-6">
                 <h2 className="font-semibold text-white mb-3">Location</h2>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="overflow-hidden rounded-xl border border-border">
                     <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">Aerial view</p>
                     <img
@@ -267,7 +267,7 @@ export default function ChargerDetail() {
           </div>
 
           {/* Right: Booking */}
-          <div className="card self-start sticky top-6">
+          <div className="card lg:self-start lg:sticky lg:top-6">
             <h2 className="font-semibold text-white mb-4">Choose a package</h2>
             <div className="space-y-2 mb-5">
               {PACKAGES.map((pkg) => {

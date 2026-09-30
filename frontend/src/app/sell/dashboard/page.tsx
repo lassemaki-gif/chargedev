@@ -141,21 +141,22 @@ function SellerDashboardInner() {
   return (
     <div>
       <Nav />
-      <div className="px-6 lg:px-16 py-12 max-w-5xl">
-        <div className="flex items-center justify-between mb-8">
+      <div className="px-4 sm:px-6 lg:px-16 py-6 sm:py-12 max-w-5xl">
+        <div className="flex items-start justify-between gap-4 mb-6 sm:mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-white">Host dashboard</h1>
-            <p className="text-ash mt-1">Manage your chargers and bookings</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">Host dashboard</h1>
+            <p className="text-ash text-sm mt-1">Manage your chargers and bookings</p>
           </div>
-          <div className="flex gap-2">
-          {!notifEnabled && (
-            <button onClick={enableNotifications} className="btn-outline text-sm">
-              🔔 Enable notifications
-            </button>
-          )}
-          {notifEnabled && <span className="text-volt text-sm self-center">🔔 Notifications on</span>}
-          <Link href="/sell/listing/new" className="btn-volt text-sm">+ Add charger</Link>
-        </div>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {!notifEnabled && (
+              <button onClick={enableNotifications} className="btn-outline text-sm px-3 py-2">
+                <span className="hidden sm:inline">🔔 Enable notifications</span>
+                <span className="sm:hidden">🔔</span>
+              </button>
+            )}
+            {notifEnabled && <span className="text-volt text-sm self-center">🔔</span>}
+            <Link href="/sell/listing/new" className="btn-volt text-sm px-4 py-2">+ Add</Link>
+          </div>
         </div>
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
@@ -233,7 +234,7 @@ function SellerDashboardInner() {
                         <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-volt/10 text-volt border border-volt/20">⚡ Premium</span>
                       )}
                     </div>
-                    <div className="text-ash text-sm">{l.address} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
+                    <div className="text-ash text-xs sm:text-sm truncate">{l.city} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
@@ -317,9 +318,10 @@ function SellerDashboardInner() {
               <div key={b.id} className="card">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="font-semibold text-white">{b.listing_title}</div>
-                    <div className="text-ash text-sm mt-0.5">
-                      {b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)} total · you earn <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span>
+                    <div className="font-semibold text-white text-sm sm:text-base truncate">{b.listing_title}</div>
+                    <div className="text-ash text-xs sm:text-sm mt-0.5">
+                      <span className="block sm:inline">{b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)}</span>
+                      <span className="block sm:inline sm:ml-1">you earn <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span></span>
                     </div>
                     <div className="mt-2 flex items-center gap-3 flex-wrap">
                       {statusBadge(b.status)}

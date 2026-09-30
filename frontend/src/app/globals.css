@@ -26,7 +26,7 @@ html, body {
 }
 
 .card {
-  @apply bg-card border border-border rounded-xl p-6;
+  @apply bg-card border border-border rounded-xl p-4 sm:p-6;
 }
 
 .input {

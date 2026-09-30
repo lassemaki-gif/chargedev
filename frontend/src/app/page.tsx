@@ -86,7 +86,7 @@ export default function Landing() {
       </nav>
 
       {/* Hero */}
-      <section className="relative px-6 lg:px-16 pt-28 pb-32 overflow-hidden">
+      <section className="relative px-6 lg:px-16 pt-16 sm:pt-28 pb-16 sm:pb-32 overflow-hidden">
         {/* Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-volt/5 rounded-full blur-3xl pointer-events-none" />
 
@@ -95,22 +95,22 @@ export default function Landing() {
             <span>⚡</span>
             <span>The home charging network</span>
           </div>
-          <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
+          <h1 className="text-4xl sm:text-5xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
             Your outlet.<br />
             <span className="text-volt">Their charge.</span><br />
             Your income.
           </h1>
-          <p className="text-xl text-ash max-w-xl mb-10 leading-relaxed">
+          <p className="text-lg sm:text-xl text-ash max-w-xl mb-8 leading-relaxed">
             Got a home charger or three-phase socket? List it on ChargedEV and earn money every time an EV driver charges up. Available worldwide.
           </p>
-          <div className="flex flex-wrap gap-4">
-            <Link href="/sell" className="btn-volt text-base">Start hosting →</Link>
-            <Link href="/charge" className="btn-outline text-base">Find a charger</Link>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/sell" className="btn-volt text-sm sm:text-base">Start hosting →</Link>
+            <Link href="/charge" className="btn-outline text-sm sm:text-base">Find a charger</Link>
           </div>
         </div>
 
         {/* Stats strip */}
-        <div className="relative mt-20 flex flex-wrap gap-10">
+        <div className="relative mt-12 sm:mt-20 grid grid-cols-2 sm:flex sm:flex-wrap gap-5 sm:gap-10">
           {[
             { n: "€0.25", label: "per kWh in Finland" },
             { n: "80%", label: "goes to the host" },
@@ -118,8 +118,8 @@ export default function Landing() {
             { n: "6-digit PIN", label: "secure session access" },
           ].map((s) => (
             <div key={s.n}>
-              <div className="text-3xl font-bold text-white">{s.n}</div>
-              <div className="text-ash text-sm mt-0.5">{s.label}</div>
+              <div className="text-2xl sm:text-3xl font-bold text-white">{s.n}</div>
+              <div className="text-ash text-xs sm:text-sm mt-0.5">{s.label}</div>
             </div>
           ))}
         </div>
@@ -131,7 +131,7 @@ export default function Landing() {
           {/* Sellers */}
           <div>
             <p className="text-volt text-sm font-semibold uppercase tracking-widest mb-4">For hosts</p>
-            <h2 className="text-3xl font-bold text-white mb-8">Earn while your car charges elsewhere</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-6 sm:mb-8">Earn while your car charges elsewhere</h2>
             <div className="space-y-6">
               {[
                 { n: "01", t: "List your charger", b: "Register, add your address, charger type, and set your price per kWh. Takes 5 minutes." },
@@ -153,7 +153,7 @@ export default function Landing() {
           {/* Buyers */}
           <div>
             <p className="text-blue-400 text-sm font-semibold uppercase tracking-widest mb-4">For drivers</p>
-            <h2 className="text-3xl font-bold text-white mb-8">Charge at homes near you</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-6 sm:mb-8">Charge at homes near you</h2>
             <div className="space-y-6">
               {[
                 { n: "01", t: "Find a charger", b: "Browse available home chargers by city. See power, charger type, and price upfront." },
@@ -203,9 +203,9 @@ export default function Landing() {
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span className="text-sm">All payments secured by <span className="text-white font-medium">Stripe</span></span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             {["Visa", "Mastercard", "Amex", "Apple Pay", "Google Pay"].map((brand) => (
-              <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5 whitespace-nowrap">{brand}</span>
+              <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5">{brand}</span>
             ))}
           </div>
         </div>

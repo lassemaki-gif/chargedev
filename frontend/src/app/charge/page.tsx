@@ -80,14 +80,14 @@ export default function BrowseChargers() {
                     {l.is_available ? "Available" : "Unavailable"}
                   </span>
                 </div>
-                <h3 className="font-semibold text-white group-hover:text-volt transition-colors mb-1 line-clamp-2">{l.title}</h3>
-                <p className="text-ash text-sm mb-3">{l.city} · {l.charger_type} · {l.max_power_kw} kW</p>
-                <div className="flex items-end justify-between">
-                  <div>
+                <h3 className="font-semibold text-white group-hover:text-volt transition-colors mb-1 line-clamp-1">{l.title}</h3>
+                <p className="text-ash text-xs mb-3 truncate">{l.city} · {l.charger_type} · {l.max_power_kw} kW</p>
+                <div className="flex items-end justify-between gap-2 min-w-0">
+                  <div className="shrink-0">
                     <span className="text-volt font-bold text-lg">€{l.price_per_kwh.toFixed(2)}</span>
                     <span className="text-ash text-sm">/kWh</span>
                   </div>
-                  <span className="text-ash text-xs">by {l.seller_name}</span>
+                  <span className="text-ash text-xs truncate">by {l.seller_name}</span>
                 </div>
               </Link>
             ))}
