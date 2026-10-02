@@ -507,6 +507,31 @@ async def send_host_booking_email(host_email: str, host_name: str, booking: Book
     except Exception as exc:
         logger.error("Failed to send host booking email: %s", exc)
 
+async def send_verification_email(email: str, full_name: str, token: str) -> None:
+    if not settings.resend_api_key:
+        return
+    verify_url = f"{settings.frontend_url}/verify-email?token={token}"
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": [email],
+            "subject": "Verify your ChargedEV email",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#22C55E;margin-bottom:4px">Verify your email ⚡</h2>
+              <p style="color:#555">Hi {html_escape(full_name)}, click the link below to verify your ChargedEV account.</p>
+              <div style="margin:24px 0">
+                <a href="{verify_url}" style="background:#22C55E;color:#0A0F1E;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Verify email</a>
+              </div>
+              <p style="color:#9CA3AF;font-size:12px">Link expires in 24 hours. If you didn't create an account, ignore this email.</p>
+              <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
+            </div>
+            """,
+        })
+    except Exception as exc:
+        logger.error("Failed to send verification email: %s", exc)
+
+
 app = FastAPI(title="ChargedEV API", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
@@ -619,6 +644,11 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
     session.add(user)
     await session.commit()
     await session.refresh(user)
+    # Generate verification token and send email
+    verification_token = secrets.token_urlsafe(32)
+    user.verification_token = verification_token
+    await session.commit()
+    asyncio.create_task(send_verification_email(user.email, user.full_name, verification_token))
     return TokenResponse(
         access_token=create_access_token(user.id, user.role),
         role=user.role,
@@ -650,6 +680,35 @@ async def logout():
     response = JSONResponse({"ok": True})
     response.delete_cookie("ll_token", path="/", samesite="strict")
     return response
+
+
+@app.get("/api/auth/verify-email")
+async def verify_email(token: str, session: AsyncSession = Depends(get_session)):
+    user = (await session.execute(
+        select(User).where(User.verification_token == token)
+    )).scalar_one_or_none()
+    if not user:
+        raise HTTPException(400, "Invalid or expired verification token")
+    user.email_verified = True
+    user.verification_token = None
+    await session.commit()
+    return {"ok": True, "email": user.email}
+
+
+@app.post("/api/auth/refresh", response_model=TokenResponse)
+async def refresh_token(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Issue a fresh access token for an authenticated user (extends session)."""
+    if not current_user.is_active:
+        raise HTTPException(403, "Account is suspended")
+    token = create_access_token(current_user.id, current_user.role)
+    return TokenResponse(
+        access_token=token,
+        role=current_user.role,
+        full_name=current_user.full_name,
+    )
 
 
 # ── Listings (public) ─────────────────────────────────────────────────────────

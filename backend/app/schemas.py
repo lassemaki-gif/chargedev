@@ -36,6 +36,7 @@ class UserOut(BaseModel):
     stripe_account_id: Optional[str]
     role: str
     is_active: bool
+    email_verified: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

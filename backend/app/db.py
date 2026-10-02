@@ -88,6 +88,9 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         started_at TIMESTAMP DEFAULT NOW(),
                         stopped_at TIMESTAMP
                     )""",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)",
+                    "UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL",
                 ]
                 for sql in migrations:
                     try:
