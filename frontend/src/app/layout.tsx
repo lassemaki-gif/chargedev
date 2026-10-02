@@ -33,8 +33,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body className="min-h-screen">
         {children}
-        <Analytics nonce={nonce} />
-        <SpeedInsights nonce={nonce} />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
