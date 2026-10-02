@@ -12,3 +12,4 @@ httpx==0.27.2
 stripe==11.1.0
 slowapi==0.1.9
 resend==2.4.0
+ocpp==2.0.0

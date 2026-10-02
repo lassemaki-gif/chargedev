@@ -139,6 +139,11 @@ export default function ChargerDetail() {
                   ⚡ Auto-start
                 </span>
               )}
+              {listing.ocpp_enabled && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-700/40">
+                  ⚡ OCPP Smart
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">

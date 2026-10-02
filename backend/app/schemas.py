@@ -80,6 +80,7 @@ class ListingOut(BaseModel):
     avg_rating: Optional[float] = None
     review_count: int = 0
     shelly_enabled: bool = False
+    ocpp_enabled: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -105,6 +106,22 @@ class ShellyStatusOut(BaseModel):
     power_w: Optional[float] = None
     energy_total_wh: Optional[float] = None
     error: Optional[str] = None
+
+
+# ── OCPP ──────────────────────────────────────────────────────────────────────
+
+class OcppRegisterRequest(BaseModel):
+    charge_point_id: str = Field(min_length=1, max_length=255)
+
+class OcppChargePointOut(BaseModel):
+    charge_point_id: str
+    vendor: Optional[str] = None
+    model: Optional[str] = None
+    status: str
+    last_heartbeat: Optional[datetime] = None
+    ws_url: str
+
+    model_config = {"from_attributes": True}
 
 
 class DayAvailability(BaseModel):

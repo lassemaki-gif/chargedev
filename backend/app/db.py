@@ -63,6 +63,31 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         stopped_at TIMESTAMP
                     )""",
                     "UPDATE users SET iban = NULL WHERE iban IS NOT NULL",
+                    "ALTER TABLE listings ADD COLUMN IF NOT EXISTS ocpp_charge_point_id VARCHAR(255)",
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_listings_ocpp_charge_point_id ON listings (ocpp_charge_point_id) WHERE ocpp_charge_point_id IS NOT NULL",
+                    """CREATE TABLE IF NOT EXISTS ocpp_charge_points (
+                        id SERIAL PRIMARY KEY,
+                        listing_id INTEGER UNIQUE NOT NULL REFERENCES listings(id),
+                        charge_point_id VARCHAR(255) UNIQUE NOT NULL,
+                        vendor VARCHAR(255),
+                        model VARCHAR(255),
+                        status VARCHAR(50) NOT NULL DEFAULT 'offline',
+                        last_heartbeat TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )""",
+                    """CREATE TABLE IF NOT EXISTS ocpp_sessions (
+                        id SERIAL PRIMARY KEY,
+                        booking_id INTEGER UNIQUE NOT NULL REFERENCES bookings(id),
+                        charge_point_id VARCHAR(255) NOT NULL,
+                        transaction_id INTEGER,
+                        id_tag VARCHAR(20) NOT NULL,
+                        target_kwh FLOAT NOT NULL,
+                        energy_start_wh FLOAT NOT NULL DEFAULT 0,
+                        energy_consumed_wh FLOAT NOT NULL DEFAULT 0,
+                        status VARCHAR(20) NOT NULL DEFAULT 'starting',
+                        started_at TIMESTAMP DEFAULT NOW(),
+                        stopped_at TIMESTAMP
+                    )""",
                 ]
                 for sql in migrations:
                     try:

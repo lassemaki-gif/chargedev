@@ -76,6 +76,8 @@ class Listing(Base):
     shelly_device_id: Mapped[Optional[str]] = mapped_column(String(255))
     shelly_auth_key: Mapped[Optional[str]] = mapped_column(String(255))
     shelly_server: Mapped[Optional[str]] = mapped_column(String(255))
+    # OCPP charger integration (Premium hosts — alternative to Shelly)
+    ocpp_charge_point_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     seller: Mapped[User] = relationship("User", back_populates="listings")
@@ -121,6 +123,37 @@ class Booking(Base):
 
     listing: Mapped[Listing] = relationship("Listing", back_populates="bookings")
     buyer: Mapped[User] = relationship("User", back_populates="bookings")
+
+
+class OcppChargePoint(Base):
+    """Registered OCPP charge point (wallbox) linked to a listing."""
+    __tablename__ = "ocpp_charge_points"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), unique=True, nullable=False)
+    charge_point_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    vendor: Mapped[Optional[str]] = mapped_column(String(255))
+    model: Mapped[Optional[str]] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(50), default="offline")
+    last_heartbeat: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class OcppSession(Base):
+    """Active or completed OCPP charging session."""
+    __tablename__ = "ocpp_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), unique=True, nullable=False)
+    charge_point_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    transaction_id: Mapped[Optional[int]] = mapped_column(Integer)
+    id_tag: Mapped[str] = mapped_column(String(20), nullable=False)  # token sent to charger
+    target_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    energy_start_wh: Mapped[float] = mapped_column(Float, default=0.0)
+    energy_consumed_wh: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(20), default="starting")  # starting|active|completed|error
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
 class ShellySession(Base):

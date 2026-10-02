@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
-import { api, Listing, Booking, SellerEarnings, ShellyStatus } from "@/lib/api";
+import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 function statusBadge(s: string) {
@@ -36,6 +36,10 @@ function SellerDashboardInner() {
   const [shellyForm, setShellyForm] = useState({ device_id: "", auth_key: "", server: "shelly-91-cloud.shelly.cloud" });
   const [shellyStatus, setShellyStatus] = useState<Record<number, ShellyStatus>>({});
   const [shellySaving, setShellySaving] = useState(false);
+  const [ocppOpen, setOcppOpen] = useState<number | null>(null);
+  const [ocppChargePointId, setOcppChargePointId] = useState("");
+  const [ocppStatus, setOcppStatus] = useState<Record<number, OcppChargePointStatus>>({});
+  const [ocppSaving, setOcppSaving] = useState(false);
 
   const stripeParam = searchParams.get("stripe");
 
@@ -123,6 +127,38 @@ function SellerDashboardInner() {
     setListings((prev) => prev.map((l) => l.id === listingId ? { ...l, shelly_enabled: false } : l));
     setShellyStatus((prev) => { const n = { ...prev }; delete n[listingId]; return n; });
     setShellyOpen(null);
+  }
+
+  async function openOcpp(l: Listing) {
+    setOcppOpen(l.id);
+    if (l.ocpp_enabled) {
+      try {
+        const s = await api.ocppStatus(l.id);
+        setOcppStatus((prev) => ({ ...prev, [l.id]: s }));
+      } catch { /* ignore */ }
+    }
+  }
+
+  async function saveOcpp(listingId: number) {
+    setOcppSaving(true);
+    try {
+      const s = await api.ocppRegister(listingId, ocppChargePointId.trim());
+      setOcppStatus((prev) => ({ ...prev, [listingId]: s }));
+      setListings((prev) => prev.map((l) => l.id === listingId ? { ...l, ocpp_enabled: true } : l));
+      setOcppOpen(null);
+      setOcppChargePointId("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to register OCPP charge point");
+    } finally {
+      setOcppSaving(false);
+    }
+  }
+
+  async function disconnectOcpp(listingId: number) {
+    await api.ocppUnregister(listingId);
+    setListings((prev) => prev.map((l) => l.id === listingId ? { ...l, ocpp_enabled: false } : l));
+    setOcppStatus((prev) => { const n = { ...prev }; delete n[listingId]; return n; });
+    setOcppOpen(null);
   }
 
   async function complete(id: number) {
@@ -238,6 +274,12 @@ function SellerDashboardInner() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
+                      onClick={() => openOcpp(l)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${l.ocpp_enabled ? "bg-blue-900/30 border-blue-700 text-blue-400" : "bg-surface border-border text-ash hover:text-white hover:border-blue-700/40"}`}
+                    >
+                      {l.ocpp_enabled ? "OCPP ✓" : "OCPP"}
+                    </button>
+                    <button
                       onClick={() => openShelly(l)}
                       className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
                     >
@@ -298,6 +340,59 @@ function SellerDashboardInner() {
                             {shellySaving ? "Connecting…" : "Connect device"}
                           </button>
                           <button onClick={() => setShellyOpen(null)} className="btn-outline text-sm px-4">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* OCPP config panel */}
+                {ocppOpen === l.id && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    {l.ocpp_enabled && ocppStatus[l.id] ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap text-sm">
+                          <span className={`font-medium ${ocppStatus[l.id].status === "offline" ? "text-red-400" : "text-blue-400"}`}>
+                            ● {ocppStatus[l.id].status}
+                          </span>
+                          {ocppStatus[l.id].vendor && (
+                            <span className="text-ash">{ocppStatus[l.id].vendor} {ocppStatus[l.id].model}</span>
+                          )}
+                          {ocppStatus[l.id].last_heartbeat && (
+                            <span className="text-ash text-xs">Last seen: {new Date(ocppStatus[l.id].last_heartbeat!).toLocaleTimeString()}</span>
+                          )}
+                        </div>
+                        <div className="bg-night rounded-lg px-3 py-2 text-xs font-mono text-ash break-all">
+                          {ocppStatus[l.id].ws_url}
+                        </div>
+                        <p className="text-ash text-xs">Configure your wallbox to connect to this WebSocket URL using OCPP 1.6.</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setOcppOpen(null)} className="btn-outline text-xs px-4 py-1.5">Close</button>
+                          <button onClick={() => disconnectOcpp(l.id)} className="text-xs text-red-400 hover:text-red-300 px-3">Unregister</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-ash text-sm">Register an OCPP 1.6 compatible wallbox (Easee, Zaptec, Wallbox, etc.) for auto-start and real-time energy tracking.</p>
+                        <div>
+                          <label className="label">Charge Point ID</label>
+                          <input
+                            className="input text-sm font-mono"
+                            placeholder="e.g. EASEE-ABC123 (your wallbox serial or custom ID)"
+                            value={ocppChargePointId}
+                            onChange={(e) => setOcppChargePointId(e.target.value)}
+                          />
+                          <p className="text-ash text-xs mt-1.5">Use any unique identifier. You will configure the same ID in your wallbox settings under OCPP Central System URL.</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => saveOcpp(l.id)}
+                            disabled={ocppSaving || !ocppChargePointId.trim()}
+                            className="btn-volt text-sm px-5 disabled:opacity-40"
+                          >
+                            {ocppSaving ? "Registering…" : "Register charger"}
+                          </button>
+                          <button onClick={() => setOcppOpen(null)} className="btn-outline text-sm px-4">Cancel</button>
                         </div>
                       </div>
                     )}

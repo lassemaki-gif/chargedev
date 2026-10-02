@@ -12,13 +12,17 @@ from typing import Optional
 import httpx
 import resend
 import stripe as stripe_lib
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from ocpp.routing import on
+from ocpp.v16 import ChargePoint as OcppCp
+from ocpp.v16 import call, call_result
+from ocpp.v16.enums import Action, RegistrationStatus, RemoteStartStopStatus
 
 from .auth import (
     create_access_token, get_current_user, hash_password,
@@ -27,14 +31,15 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, Review, ShellySession, User, UserRole,
+    Booking, BookingStatus, Listing, PACKAGES_KWH, Review,
+    OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
-    LoginRequest, PlatformStats, ProfileUpdate, RegisterRequest,
-    ReviewCreate, ReviewOut, SellerEarnings, ShellyConfigRequest, ShellyStatusOut,
-    StripeOnboardResponse, StripeStatusResponse, TokenResponse, UserOut,
-    WeeklyAvailabilitySchema,
+    LoginRequest, OcppChargePointOut, OcppRegisterRequest, PlatformStats,
+    ProfileUpdate, RegisterRequest, ReviewCreate, ReviewOut, SellerEarnings,
+    ShellyConfigRequest, ShellyStatusOut, StripeOnboardResponse,
+    StripeStatusResponse, TokenResponse, UserOut, WeeklyAvailabilitySchema,
 )
 
 
@@ -157,6 +162,188 @@ async def _shelly_poll_loop() -> None:
             await asyncio.gather(*[_poll_one(s) for s in sessions])
         except Exception as exc:
             logger.warning("Shelly poll loop error: %s", exc)
+
+
+# ── OCPP 1.6 Central System ───────────────────────────────────────────────────
+
+# In-memory registry: charge_point_id → connected ChargePoint handler
+_ocpp_connections: dict[str, "ChargedEVChargePoint"] = {}
+
+
+class ChargedEVChargePoint(OcppCp):
+    """OCPP 1.6 charge point handler — one instance per connected wallbox."""
+
+    @on(Action.boot_notification)
+    async def on_boot_notification(self, charge_point_vendor: str, charge_point_model: str, **kwargs):
+        from .db import async_session
+        async with async_session() as sess:
+            cp = (await sess.execute(
+                select(OcppChargePoint).where(OcppChargePoint.charge_point_id == self.id)
+            )).scalar_one_or_none()
+            if cp:
+                cp.vendor = charge_point_vendor
+                cp.model = charge_point_model
+                cp.status = "available"
+                cp.last_heartbeat = datetime.now(timezone.utc)
+                await sess.commit()
+        logger.info("OCPP BootNotification from %s (%s %s)", self.id, charge_point_vendor, charge_point_model)
+        return call_result.BootNotification(
+            current_time=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+            interval=300,
+            status=RegistrationStatus.accepted,
+        )
+
+    @on(Action.heartbeat)
+    async def on_heartbeat(self, **kwargs):
+        from .db import async_session
+        async with async_session() as sess:
+            cp = (await sess.execute(
+                select(OcppChargePoint).where(OcppChargePoint.charge_point_id == self.id)
+            )).scalar_one_or_none()
+            if cp:
+                cp.last_heartbeat = datetime.now(timezone.utc)
+                await sess.commit()
+        return call_result.Heartbeat(
+            current_time=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+        )
+
+    @on(Action.status_notification)
+    async def on_status_notification(self, connector_id: int, error_code: str, status: str, **kwargs):
+        from .db import async_session
+        async with async_session() as sess:
+            cp = (await sess.execute(
+                select(OcppChargePoint).where(OcppChargePoint.charge_point_id == self.id)
+            )).scalar_one_or_none()
+            if cp and connector_id in (0, 1):
+                cp.status = status.lower()
+                await sess.commit()
+        logger.info("OCPP StatusNotification %s: connector=%d status=%s", self.id, connector_id, status)
+        return call_result.StatusNotification()
+
+    @on(Action.start_transaction)
+    async def on_start_transaction(self, connector_id: int, id_tag: str, timestamp: str, meter_start: int, **kwargs):
+        from .db import async_session
+        transaction_id = int(secrets.randbelow(2 ** 31))
+        async with async_session() as sess:
+            ocpp_sess = (await sess.execute(
+                select(OcppSession).where(
+                    OcppSession.charge_point_id == self.id,
+                    OcppSession.id_tag == id_tag,
+                    OcppSession.status == "starting",
+                )
+            )).scalar_one_or_none()
+            if ocpp_sess:
+                ocpp_sess.transaction_id = transaction_id
+                ocpp_sess.energy_start_wh = float(meter_start)
+                ocpp_sess.status = "active"
+                await sess.commit()
+                logger.info("OCPP StartTransaction txn=%d cpid=%s booking=%d", transaction_id, self.id, ocpp_sess.booking_id)
+        return call_result.StartTransaction(
+            transaction_id=transaction_id,
+            id_tag_info={"status": "Accepted"},
+        )
+
+    @on(Action.stop_transaction)
+    async def on_stop_transaction(self, transaction_id: int, timestamp: str, meter_stop: int, **kwargs):
+        from .db import async_session
+        async with async_session() as sess:
+            ocpp_sess = (await sess.execute(
+                select(OcppSession).where(OcppSession.transaction_id == transaction_id)
+            )).scalar_one_or_none()
+            if ocpp_sess and ocpp_sess.status == "active":
+                consumed = (meter_stop - ocpp_sess.energy_start_wh) / 1000.0
+                ocpp_sess.energy_consumed_wh = float(meter_stop - ocpp_sess.energy_start_wh)
+                ocpp_sess.status = "completed"
+                ocpp_sess.stopped_at = datetime.now(timezone.utc)
+                booking = await sess.get(Booking, ocpp_sess.booking_id)
+                if booking and booking.status == BookingStatus.confirmed:
+                    booking.status = BookingStatus.completed
+                    booking.completed_at = datetime.now(timezone.utc)
+                await sess.commit()
+                logger.info("OCPP StopTransaction txn=%d consumed=%.3f kWh", transaction_id, consumed)
+        return call_result.StopTransaction()
+
+    @on(Action.meter_values)
+    async def on_meter_values(self, connector_id: int, meter_value: list, **kwargs):
+        from .db import async_session
+        # Extract Wh reading and check if target reached
+        wh = None
+        transaction_id = kwargs.get("transaction_id")
+        for mv in meter_value:
+            for sv in mv.get("sampled_value", []):
+                if sv.get("measurand", "Energy.Active.Import.Register") == "Energy.Active.Import.Register":
+                    try:
+                        wh = float(sv.get("value", 0))
+                        if sv.get("unit", "Wh") == "kWh":
+                            wh *= 1000
+                    except (ValueError, TypeError):
+                        pass
+        if wh is not None and transaction_id:
+            async with async_session() as sess:
+                ocpp_sess = (await sess.execute(
+                    select(OcppSession).where(OcppSession.transaction_id == transaction_id)
+                )).scalar_one_or_none()
+                if ocpp_sess and ocpp_sess.status == "active":
+                    consumed_kwh = (wh - ocpp_sess.energy_start_wh) / 1000.0
+                    ocpp_sess.energy_consumed_wh = wh - ocpp_sess.energy_start_wh
+                    await sess.commit()
+                    logger.info("OCPP MeterValues txn=%d consumed=%.3f kWh target=%.1f", transaction_id, consumed_kwh, ocpp_sess.target_kwh)
+                    if consumed_kwh >= ocpp_sess.target_kwh:
+                        asyncio.create_task(self._stop_session(transaction_id))
+        return call_result.MeterValues()
+
+    async def _stop_session(self, transaction_id: int) -> None:
+        try:
+            req = call.RemoteStopTransaction(transaction_id=transaction_id)
+            resp = await self.call(req)
+            logger.info("OCPP RemoteStopTransaction txn=%d status=%s", transaction_id, resp.status)
+        except Exception as exc:
+            logger.error("OCPP RemoteStopTransaction error txn=%d: %s", transaction_id, exc)
+
+    async def remote_start(self, id_tag: str, connector_id: int = 1) -> bool:
+        try:
+            req = call.RemoteStartTransaction(id_tag=id_tag, connector_id=connector_id)
+            resp = await self.call(req)
+            return resp.status == RemoteStartStopStatus.accepted
+        except Exception as exc:
+            logger.error("OCPP RemoteStartTransaction error cpid=%s: %s", self.id, exc)
+            return False
+
+
+async def _ocpp_start_session(booking: Booking, listing: Listing) -> None:
+    """Send RemoteStartTransaction to the OCPP charge point. Fires as a background task."""
+    from .db import async_session
+    cp_handler = _ocpp_connections.get(listing.ocpp_charge_point_id)
+    id_tag = f"bk{booking.id:06d}"
+    # Create session record first
+    async with async_session() as sess:
+        existing = (await sess.execute(
+            select(OcppSession).where(OcppSession.booking_id == booking.id)
+        )).scalar_one_or_none()
+        if not existing:
+            sess.add(OcppSession(
+                booking_id=booking.id,
+                charge_point_id=listing.ocpp_charge_point_id,
+                id_tag=id_tag,
+                target_kwh=float(booking.package_kwh),
+                status="starting" if cp_handler else "error",
+            ))
+            await sess.commit()
+    if not cp_handler:
+        logger.error("OCPP charge point %s not connected for booking %d", listing.ocpp_charge_point_id, booking.id)
+        return
+    ok = await cp_handler.remote_start(id_tag)
+    if not ok:
+        logger.error("OCPP RemoteStartTransaction rejected for booking %d", booking.id)
+        async with async_session() as sess:
+            ocpp_s = (await sess.execute(
+                select(OcppSession).where(OcppSession.booking_id == booking.id)
+            )).scalar_one_or_none()
+            if ocpp_s:
+                ocpp_s.status = "error"
+                await sess.commit()
+    else:
+        logger.info("OCPP session started for booking %d (id_tag=%s)", booking.id, id_tag)
 
 
 @asynccontextmanager
@@ -284,6 +471,7 @@ async def listing_out(r: Listing, seller_name: str, session: AsyncSession) -> Li
         avg_rating=avg,
         review_count=len(reviews),
         shelly_enabled=bool(r.shelly_device_id),
+        ocpp_enabled=bool(r.ocpp_charge_point_id),
     )
 
 
@@ -989,6 +1177,124 @@ async def shelly_disconnect(
     return {"ok": True}
 
 
+# ── OCPP endpoints ────────────────────────────────────────────────────────────
+
+@app.websocket("/ocpp/{charge_point_id}")
+async def ocpp_websocket(websocket: WebSocket, charge_point_id: str):
+    """WebSocket endpoint for OCPP 1.6 charge points to connect to."""
+    await websocket.accept(subprotocol="ocpp1.6")
+    cp = ChargedEVChargePoint(charge_point_id, websocket)
+    _ocpp_connections[charge_point_id] = cp
+    logger.info("OCPP charge point connected: %s", charge_point_id)
+    # Update DB status to online
+    from .db import async_session as _as
+    async with _as() as sess:
+        db_cp = (await sess.execute(
+            select(OcppChargePoint).where(OcppChargePoint.charge_point_id == charge_point_id)
+        )).scalar_one_or_none()
+        if db_cp:
+            db_cp.status = "available"
+            await sess.commit()
+    try:
+        await cp.start()
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.warning("OCPP charge point %s disconnected: %s", charge_point_id, exc)
+    finally:
+        _ocpp_connections.pop(charge_point_id, None)
+        logger.info("OCPP charge point disconnected: %s", charge_point_id)
+        async with _as() as sess:
+            db_cp = (await sess.execute(
+                select(OcppChargePoint).where(OcppChargePoint.charge_point_id == charge_point_id)
+            )).scalar_one_or_none()
+            if db_cp:
+                db_cp.status = "offline"
+                await sess.commit()
+
+
+@app.post("/api/seller/ocpp/{listing_id}", response_model=OcppChargePointOut)
+async def ocpp_register(
+    listing_id: int,
+    body: OcppRegisterRequest,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Register an OCPP charge point for a listing."""
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    # Check charge_point_id not already used by another listing
+    existing = (await session.execute(
+        select(OcppChargePoint).where(OcppChargePoint.charge_point_id == body.charge_point_id)
+    )).scalar_one_or_none()
+    if existing and existing.listing_id != listing_id:
+        raise HTTPException(400, "This charge point ID is already registered to another listing")
+    # Upsert
+    cp = existing or OcppChargePoint(listing_id=listing_id, charge_point_id=body.charge_point_id)
+    cp.charge_point_id = body.charge_point_id
+    if not existing:
+        session.add(cp)
+    listing.ocpp_charge_point_id = body.charge_point_id
+    await session.commit()
+    ws_url = f"{settings.frontend_url.replace('https://', 'wss://').replace('http://', 'ws://')}/ocpp/{body.charge_point_id}".replace("chargedev.io", "chargedev-production.up.railway.app")
+    return OcppChargePointOut(
+        charge_point_id=cp.charge_point_id,
+        vendor=cp.vendor,
+        model=cp.model,
+        status=cp.status if cp.charge_point_id in _ocpp_connections else "offline",
+        last_heartbeat=cp.last_heartbeat,
+        ws_url=ws_url,
+    )
+
+
+@app.get("/api/seller/ocpp/{listing_id}", response_model=OcppChargePointOut)
+async def ocpp_status(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    if not listing.ocpp_charge_point_id:
+        raise HTTPException(404, "No OCPP charge point registered")
+    cp = (await session.execute(
+        select(OcppChargePoint).where(OcppChargePoint.charge_point_id == listing.ocpp_charge_point_id)
+    )).scalar_one_or_none()
+    if not cp:
+        raise HTTPException(404, "Charge point not found")
+    ws_url = f"wss://chargedev-production.up.railway.app/ocpp/{cp.charge_point_id}"
+    return OcppChargePointOut(
+        charge_point_id=cp.charge_point_id,
+        vendor=cp.vendor,
+        model=cp.model,
+        status=cp.status if cp.charge_point_id in _ocpp_connections else "offline",
+        last_heartbeat=cp.last_heartbeat,
+        ws_url=ws_url,
+    )
+
+
+@app.delete("/api/seller/ocpp/{listing_id}")
+async def ocpp_unregister(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    if listing.ocpp_charge_point_id:
+        cp = (await session.execute(
+            select(OcppChargePoint).where(OcppChargePoint.charge_point_id == listing.ocpp_charge_point_id)
+        )).scalar_one_or_none()
+        if cp:
+            await session.delete(cp)
+        listing.ocpp_charge_point_id = None
+        await session.commit()
+    return {"ok": True}
+
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
     payload = await request.body()
@@ -1037,8 +1343,10 @@ async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_s
                         logger.warning(
                             "Booking %d: host has no Stripe account — transfer skipped", booking_id
                         )
-                    # Auto-start Shelly relay if listing has one configured
-                    if listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+                    # Auto-start: Shelly relay OR OCPP (mutually exclusive per listing)
+                    if listing and listing.ocpp_charge_point_id:
+                        asyncio.create_task(_ocpp_start_session(b, listing))
+                    elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
                         asyncio.create_task(_shelly_start_session(b, listing))
                 else:
                     logger.warning("Booking %d status=%s transfer=%s", booking_id, b.status if b else "NOT FOUND", b.stripe_transfer_id if b else None)
@@ -1089,7 +1397,9 @@ async def verify_checkout(
                 await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
                 if host.stripe_account_id:
                     await _transfer_to_host(b, host.stripe_account_id, session)
-            if listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+            if listing and listing.ocpp_charge_point_id:
+                asyncio.create_task(_ocpp_start_session(b, listing))
+            elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
                 asyncio.create_task(_shelly_start_session(b, listing))
     except Exception as exc:
         logger.error("Stripe verify error: %s", exc)

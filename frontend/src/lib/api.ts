@@ -100,6 +100,12 @@ export const api = {
   shellyStatus: (listingId: number) => req<ShellyStatus>("GET", `/api/seller/shelly/${listingId}`),
   shellyDisconnect: (listingId: number) => req<{ ok: boolean }>("DELETE", `/api/seller/shelly/${listingId}`),
 
+  // OCPP (Premium hosts — alternative to Shelly)
+  ocppRegister: (listingId: number, chargePointId: string) =>
+    req<OcppChargePointStatus>("POST", `/api/seller/ocpp/${listingId}`, { charge_point_id: chargePointId }),
+  ocppStatus: (listingId: number) => req<OcppChargePointStatus>("GET", `/api/seller/ocpp/${listingId}`),
+  ocppUnregister: (listingId: number) => req<{ ok: boolean }>("DELETE", `/api/seller/ocpp/${listingId}`),
+
   // Admin
   adminStats: () => req<PlatformStats>("GET", "/api/admin/stats"),
   adminUsers: () => req<User[]>("GET", "/api/admin/users"),
@@ -128,7 +134,17 @@ export interface Listing {
   avg_rating?: number;
   review_count?: number;
   shelly_enabled?: boolean;
+  ocpp_enabled?: boolean;
   created_at: string;
+}
+
+export interface OcppChargePointStatus {
+  charge_point_id: string;
+  vendor?: string;
+  model?: string;
+  status: string;  // available | charging | offline | faulted
+  last_heartbeat?: string;
+  ws_url: string;
 }
 
 export interface ShellyStatus {
