@@ -97,9 +97,14 @@ function SuccessContent() {
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         <span>Payment processed securely by <span className="text-white/70">Stripe</span></span>
       </div>
-      <button onClick={() => router.push("/charge")} className="btn-outline w-full text-center text-sm">
-        Browse more chargers
-      </button>
+      <div className="flex gap-3">
+        <button onClick={() => router.push("/bookings")} className="btn-volt flex-1 text-sm text-center">
+          My bookings
+        </button>
+        <button onClick={() => router.push("/charge")} className="btn-outline flex-1 text-sm text-center">
+          Find more
+        </button>
+      </div>
     </>
   );
 }
