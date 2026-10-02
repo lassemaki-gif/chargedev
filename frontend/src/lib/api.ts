@@ -65,6 +65,7 @@ export const api = {
   stripeOnboard: () => req<{ url: string }>("POST", "/api/seller/stripe/onboard"),
   stripeStatus: () => req<{ onboarded: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("GET", "/api/seller/stripe/status"),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),
+  updateListing: (id: number, body: Partial<Listing>) => req<Listing>("PUT", `/api/seller/listings/${id}`, body),
   myListings: () => req<Listing[]>("GET", "/api/seller/listings"),
   toggleListing: (id: number) => req<{ is_available: boolean }>("PUT", `/api/seller/listings/${id}/toggle`),
   sellerBookings: () => req<Booking[]>("GET", "/api/seller/bookings"),

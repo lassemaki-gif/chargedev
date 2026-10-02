@@ -758,6 +758,32 @@ async def my_listings(
     return [await listing_out(r, current_user.full_name, session) for r in rows]
 
 
+@app.put("/api/seller/listings/{listing_id}", response_model=ListingOut)
+async def update_listing(
+    listing_id: int,
+    body: ListingCreate,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    listing.title = body.title
+    listing.description = body.description
+    listing.address = body.address
+    listing.city = body.city
+    listing.country = body.country
+    listing.charger_type = body.charger_type  # type: ignore[assignment]
+    listing.max_power_kw = body.max_power_kw
+    listing.price_per_kwh = body.price_per_kwh
+    listing.instructions = body.instructions
+    # Invalidate geocode so it refreshes on next geocode run
+    listing.lat = None
+    listing.lng = None
+    await session.commit()
+    return await listing_out(listing, current_user.full_name, session)
+
+
 @app.put("/api/seller/listings/{listing_id}/toggle")
 async def toggle_listing(
     listing_id: int,

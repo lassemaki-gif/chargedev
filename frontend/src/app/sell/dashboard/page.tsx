@@ -273,15 +273,21 @@ function SellerDashboardInner() {
                     <div className="text-ash text-xs sm:text-sm truncate">{l.city} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      href={`/sell/listing/${l.id}/edit`}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-white/30 transition-colors"
+                    >
+                      Edit
+                    </Link>
                     <button
                       onClick={() => openOcpp(l)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${l.ocpp_enabled ? "bg-blue-900/30 border-blue-700 text-blue-400" : "bg-surface border-border text-ash hover:text-white hover:border-blue-700/40"}`}
+                      className={`hidden sm:block px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${l.ocpp_enabled ? "bg-blue-900/30 border-blue-700 text-blue-400" : "bg-surface border-border text-ash hover:text-white hover:border-blue-700/40"}`}
                     >
                       {l.ocpp_enabled ? "OCPP ✓" : "OCPP"}
                     </button>
                     <button
                       onClick={() => openShelly(l)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
+                      className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
                     >
                       {l.shelly_enabled ? "Shelly ✓" : "Shelly"}
                     </button>
