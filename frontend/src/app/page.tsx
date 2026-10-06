@@ -264,12 +264,15 @@ export default function Landing() {
             <div className="flex gap-5 text-ash text-sm">
               <Link href="/sell" className="hover:text-white transition-colors">For hosts</Link>
               <Link href="/charge" className="hover:text-white transition-colors">Find a charger</Link>
-              <Link href="/admin" className="hover:text-white transition-colors">Admin</Link>
+              <a href="mailto:support@chargedev.io" className="hover:text-white transition-colors">Support</a>
             </div>
             <div className="flex items-center gap-1.5 text-ash text-xs">
               <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <span>Payments secured by <span className="text-white/70">Stripe</span></span>
             </div>
+            <a href="mailto:support@chargedev.io" className="text-ash text-xs hover:text-white transition-colors">
+              support@chargedev.io
+            </a>
           </div>
         </div>
       </footer>

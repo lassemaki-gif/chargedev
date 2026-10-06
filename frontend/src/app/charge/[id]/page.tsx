@@ -5,6 +5,7 @@ import { Nav } from "@/components/Nav";
 import { StarRating } from "@/components/StarRating";
 import { AvailabilityGrid, WeeklyAvailability } from "@/components/AvailabilityGrid";
 import { api, Listing, PACKAGES, Review_, saveRole } from "@/lib/api";
+import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
 import { useRouter, useParams } from "next/navigation";
 
 export default function ChargerDetail() {
@@ -150,7 +151,7 @@ export default function ChargerDetail() {
               {[
                 { label: "Type", value: listing.charger_type },
                 { label: "Max power", value: `${listing.max_power_kw} kW` },
-                { label: "Price", value: `€${listing.price_per_kwh.toFixed(2)}/kWh` },
+                { label: "Price", value: `€${listing.price_per_kwh.toFixed(2)}/kWh (incl. VAT)` },
               ].map((i) => (
                 <div key={i.label} className="card text-center !p-3 sm:!p-4">
                   <div className="text-ash text-xs mb-1">{i.label}</div>
@@ -299,12 +300,27 @@ export default function ChargerDetail() {
               <input className="input text-sm" placeholder="e.g. I'll arrive around 14:00" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
 
-            {price && (
-              <div className="flex justify-between text-sm mb-4 py-3 border-t border-border">
-                <span className="text-ash">Total</span>
-                <span className="font-bold text-white">€{price}</span>
-              </div>
-            )}
+            {price && (() => {
+              const gross = parseFloat(price);
+              const net = netFromGross(gross);
+              const vat = vatFromGross(gross);
+              return (
+                <div className="space-y-1 text-sm mb-4 py-3 border-t border-border">
+                  <div className="flex justify-between text-ash">
+                    <span>Price (excl. VAT)</span>
+                    <span>€{net.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-ash">
+                    <span>{VAT_LABEL}</span>
+                    <span>€{vat.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-white pt-1 border-t border-border">
+                    <span>Total</span>
+                    <span>€{price}</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-3 py-2 text-sm mb-3">{error}</div>}
 

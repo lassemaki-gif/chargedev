@@ -4,6 +4,7 @@ import { track } from "@vercel/analytics";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, Booking } from "@/lib/api";
+import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
 
 function SuccessContent() {
   const params = useSearchParams();
@@ -91,7 +92,18 @@ function SuccessContent() {
         <div className="flex justify-between"><span>Charger</span><span className="text-white">{booking!.listing_title}</span></div>
         <div className="flex justify-between"><span>Address</span><span className="text-white">{booking!.listing_address}</span></div>
         <div className="flex justify-between"><span>Package</span><span className="text-white">{booking!.package_kwh} kWh</span></div>
-        <div className="flex justify-between"><span>Total paid</span><span className="text-white font-medium">€{booking!.total_eur.toFixed(2)}</span></div>
+        <div className="flex justify-between border-t border-border pt-2 mt-1">
+          <span>Price (excl. VAT)</span>
+          <span>€{netFromGross(booking!.total_eur).toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>{VAT_LABEL}</span>
+          <span>€{vatFromGross(booking!.total_eur).toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between font-medium text-white">
+          <span>Total paid</span>
+          <span>€{booking!.total_eur.toFixed(2)}</span>
+        </div>
       </div>
       <div className="flex items-center justify-center gap-1.5 text-ash text-xs mb-6">
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>

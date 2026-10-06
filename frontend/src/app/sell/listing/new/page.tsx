@@ -94,7 +94,7 @@ export default function NewListing() {
           </div>
 
           <div>
-            <label className="label">Price per kWh (€)</label>
+            <label className="label">Price per kWh (€, incl. 25.5% VAT)</label>
             <input className="input" type="number" min={0.05} max={2} step={0.01} value={form.price_per_kwh} onChange={(e) => set("price_per_kwh", parseFloat(e.target.value))} />
             <p className="text-ash text-xs mt-1.5">
               Estimated monthly earnings (10 × 40 kWh sessions, 80% cut): <span className="text-volt font-medium">€{estimatedMonthly}</span>

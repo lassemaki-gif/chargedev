@@ -85,7 +85,7 @@ export default function BrowseChargers() {
                 <div className="flex items-end justify-between gap-2 min-w-0">
                   <div className="shrink-0">
                     <span className="text-volt font-bold text-lg">€{l.price_per_kwh.toFixed(2)}</span>
-                    <span className="text-ash text-sm">/kWh</span>
+                    <span className="text-ash text-sm">/kWh incl. VAT</span>
                   </div>
                   <span className="text-ash text-xs truncate">by {l.seller_name}</span>
                 </div>
