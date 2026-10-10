@@ -1112,7 +1112,6 @@ async def create_checkout(
             "description": f"{body.package_kwh} kWh — {listing.title}",
             "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
             "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie",
-            "cancelUrl": f"{settings.frontend_url}/charge/{listing.id}?cancelled=1",
             "metadata": {"booking_id": str(booking.id)},
         })
     except Exception as exc:
