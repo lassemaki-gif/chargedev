@@ -1114,6 +1114,9 @@ async def create_checkout(
             "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie",
             "metadata": {"booking_id": str(booking.id)},
         })
+    except httpx.HTTPStatusError as exc:
+        logger.error("Mollie payment creation failed: status=%s body=%s", exc.response.status_code, exc.response.text)
+        raise HTTPException(502, f"Could not create payment: {exc.response.text}")
     except Exception as exc:
         logger.error("Mollie payment creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
