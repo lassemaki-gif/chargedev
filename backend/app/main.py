@@ -1087,8 +1087,6 @@ async def create_checkout(
     listing = await session.get(Listing, body.listing_id)
     if not listing or not listing.is_available:
         raise HTTPException(404, "Listing not found or unavailable")
-    if listing.seller_id == current_user.id:
-        raise HTTPException(403, "You cannot book your own listing")
 
     total, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)
 
