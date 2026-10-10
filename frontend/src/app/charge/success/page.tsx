@@ -9,7 +9,8 @@ import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
 function SuccessContent() {
   const params = useSearchParams();
   const router = useRouter();
-  const sessionId = params.get("session_id");
+  const bookingIdParam = params.get("booking_id");
+  const bookingId = bookingIdParam ? parseInt(bookingIdParam, 10) : null;
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -22,11 +23,11 @@ function SuccessContent() {
   }, []);
 
   useEffect(() => {
-    if (!sessionId) { router.push("/charge"); return; }
+    if (!bookingId) { router.push("/charge"); return; }
     const confirm = async () => {
       try {
-        // verify endpoint confirms payment with Stripe directly — no webhook needed
-        const b = await api.verifyCheckout(sessionId);
+        // verify endpoint confirms payment with Mollie directly — no webhook needed
+        const b = await api.verifyCheckout(bookingId);
         if (b.pin_code) {
           setBooking(b);
           track("booking_completed", {
@@ -40,7 +41,7 @@ function SuccessContent() {
         let attempts = 0;
         const poll = async () => {
           try {
-            const b2 = await api.bookingBySession(sessionId);
+            const b2 = await api.bookingById(bookingId);
             if (b2.pin_code) { setBooking(b2); return; }
             if (++attempts < 6) setTimeout(poll, 2000);
             else setError("Payment confirmed but PIN generation is taking longer than expected. Check your email or bookings shortly.");
@@ -55,7 +56,7 @@ function SuccessContent() {
       }
     };
     confirm();
-  }, [sessionId, router]);
+  }, [bookingId, router]);
 
   if (!booking && !error) return (
     <>

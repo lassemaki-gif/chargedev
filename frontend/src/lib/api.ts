@@ -90,10 +90,10 @@ export const api = {
   checkout: (body: { listing_id: number; package_kwh: number; notes?: string }) =>
     req<{ checkout_url: string; booking_id: number }>("POST", "/api/checkout", body),
   myBookings: () => req<Booking[]>("GET", "/api/buyer/bookings"),
-  bookingBySession: (sessionId: string) =>
-    req<Booking>("GET", `/api/bookings/by-session/${sessionId}`),
-  verifyCheckout: (sessionId: string) =>
-    req<Booking>("GET", `/api/checkout/verify/${sessionId}`),
+  bookingById: (bookingId: number) =>
+    req<Booking>("GET", `/api/bookings/${bookingId}`),
+  verifyCheckout: (bookingId: number) =>
+    req<Booking>("GET", `/api/checkout/verify/${bookingId}`),
 
   // Shelly (Premium hosts)
   shellyConnect: (listingId: number, body: { device_id: string; auth_key: string; server: string }) =>

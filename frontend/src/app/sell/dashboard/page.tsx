@@ -1,7 +1,6 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus } from "@/lib/api";
 import { useRouter } from "next/navigation";
@@ -23,13 +22,11 @@ export default function SellerDashboard() {
 
 function SellerDashboardInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<SellerEarnings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stripeConnecting, setStripeConnecting] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [shellyOpen, setShellyOpen] = useState<number | null>(null);
@@ -40,8 +37,6 @@ function SellerDashboardInner() {
   const [ocppChargePointId, setOcppChargePointId] = useState("");
   const [ocppStatus, setOcppStatus] = useState<Record<number, OcppChargePointStatus>>({});
   const [ocppSaving, setOcppSaving] = useState(false);
-
-  const stripeParam = searchParams.get("stripe");
 
   useEffect(() => {
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
@@ -57,20 +52,6 @@ function SellerDashboardInner() {
       })
       .finally(() => setLoading(false));
   }, [router]);
-
-  async function connectStripe() {
-    setStripeConnecting(true);
-    try {
-      const { url } = await api.stripeOnboard();
-      if (!url.startsWith("https://connect.stripe.com/") && !url.startsWith("https://onboarding.stripe.com/")) {
-        throw new Error("Invalid onboarding URL");
-      }
-      window.location.href = url;
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start Stripe onboarding");
-      setStripeConnecting(false);
-    }
-  }
 
   async function enableNotifications() {
     if (!("Notification" in window)) { alert("Your browser does not support notifications."); return; }
@@ -197,17 +178,6 @@ function SellerDashboardInner() {
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
 
-        {stripeParam === "success" && (
-          <div className="bg-green-900/30 border border-green-700 text-green-400 rounded-lg px-4 py-3 text-sm mb-6">
-            Stripe account connected — you will now receive payouts automatically.
-          </div>
-        )}
-        {stripeParam === "refresh" && (
-          <div className="bg-yellow-900/30 border border-yellow-700 text-yellow-400 rounded-lg px-4 py-3 text-sm mb-6">
-            Stripe onboarding was not completed. Please try again.
-          </div>
-        )}
-
         {/* Earnings */}
         {earnings && (
           <div className="grid sm:grid-cols-3 gap-4 mb-6">
@@ -227,28 +197,14 @@ function SellerDashboardInner() {
           </div>
         )}
 
-        {/* Stripe Connect */}
+        {/* Payouts */}
         <div className="card mb-10">
-          <h2 className="font-semibold text-white mb-1">Payout account</h2>
-          {earnings?.stripe_onboarded ? (
-            <div className="flex items-center gap-3">
-              <span className="text-green-400 text-sm font-medium">Stripe connected</span>
-              <span className="text-ash text-xs">You receive 80% of each booking immediately after the guest pays.</span>
-            </div>
-          ) : (
-            <>
-              <p className="text-ash text-sm mb-4">
-                Connect your bank account via Stripe to receive 80% of each booking automatically, right when the guest pays.
-              </p>
-              <button
-                onClick={connectStripe}
-                disabled={stripeConnecting}
-                className="btn-volt text-sm px-6"
-              >
-                {stripeConnecting ? "Redirecting…" : "Connect with Stripe"}
-              </button>
-            </>
-          )}
+          <h2 className="font-semibold text-white mb-1">Payouts</h2>
+          <p className="text-ash text-sm">
+            Your earnings are paid out manually via bank transfer. Contact{" "}
+            <a href="mailto:support@chargedev.io" className="text-volt hover:underline">support@chargedev.io</a>{" "}
+            to set up your payout details.
+          </p>
         </div>
 
         {/* Listings */}

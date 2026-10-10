@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     platform_fee_pct: float = 0.20  # 20%
     default_price_per_kwh: float = 0.25  # EUR
 
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
+    mollie_api_key: str = ""
+    backend_url: str = "https://chargedev-production.up.railway.app"
     frontend_url: str = "https://chargedev.io"
     resend_api_key: str = ""
     email_from: str = "ChargedEV <noreply@chargedev.io>"

@@ -11,8 +11,7 @@ from typing import Optional
 
 import httpx
 import resend
-import stripe as stripe_lib
-from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -38,8 +37,7 @@ from .schemas import (
     BookingCreate, BookingOut, ListingCreate, ListingOut,
     LoginRequest, OcppChargePointOut, OcppRegisterRequest, PlatformStats,
     ProfileUpdate, RegisterRequest, ReviewCreate, ReviewOut, SellerEarnings,
-    ShellyConfigRequest, ShellyStatusOut, StripeOnboardResponse,
-    StripeStatusResponse, TokenResponse, UserOut, WeeklyAvailabilitySchema,
+    ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
 )
 
 
@@ -353,7 +351,6 @@ async def lifespan(_: FastAPI):
     yield
 
 
-stripe_lib.api_key = settings.stripe_secret_key
 resend.api_key = settings.resend_api_key
 logger = logging.getLogger(__name__)
 
@@ -572,6 +569,19 @@ def _gen_pin() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
+async def _mollie(method: str, path: str, **kwargs) -> dict:
+    """Authenticated request to the Mollie REST API."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.request(
+            method,
+            f"https://api.mollie.com/v2{path}",
+            headers={"Authorization": f"Bearer {settings.mollie_api_key}"},
+            **kwargs,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
     return BookingOut(
         id=b.id,
@@ -596,24 +606,9 @@ def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
     )
 
 
-async def _transfer_to_host(booking: Booking, stripe_account_id: str, session: AsyncSession) -> None:
-    """Create an immediate Stripe Transfer of 80% to the host's connected account."""
-    try:
-        transfer = stripe_lib.Transfer.create(
-            amount=int(booking.seller_earnings_eur * 100),  # cents
-            currency="eur",
-            destination=stripe_account_id,
-            transfer_group=f"booking_{booking.id}",
-            description=f"ChargedEV booking #{booking.id} — host earnings",
-            idempotency_key=f"transfer_booking_{booking.id}",
-        )
-        booking.stripe_transfer_id = transfer.id
-        booking.paid_out = True
-        booking.paid_out_at = datetime.now(timezone.utc)
-        await session.commit()
-        logger.info("Transfer %s created for booking %d (€%.2f)", transfer.id, booking.id, booking.seller_earnings_eur)
-    except Exception as exc:
-        logger.error("Stripe transfer failed for booking %d: %s", booking.id, exc)
+async def _transfer_to_host(booking: Booking, session: AsyncSession) -> None:
+    """Placeholder — payouts are processed manually via bank transfer."""
+    logger.info("Booking %d: €%.2f earnings pending manual payout to host", booking.id, booking.seller_earnings_eur)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -789,20 +784,12 @@ async def seller_earnings(
     paid = sum(b.seller_earnings_eur for b in bookings if b.paid_out)
     pending = sum(b.seller_earnings_eur for b in bookings if not b.paid_out)
 
-    stripe_onboarded = False
-    if current_user.stripe_account_id:
-        try:
-            acct = stripe_lib.Account.retrieve(current_user.stripe_account_id)
-            stripe_onboarded = acct.charges_enabled and acct.payouts_enabled
-        except Exception:
-            pass
-
     return SellerEarnings(
         pending_eur=round(pending, 2),
         paid_out_eur=round(paid, 2),
         total_eur=round(pending + paid, 2),
-        stripe_onboarded=stripe_onboarded,
-        stripe_account_id=current_user.stripe_account_id,
+        stripe_onboarded=False,
+        stripe_account_id=None,
     )
 
 
@@ -1005,23 +992,16 @@ async def admin_retry_transfer(
     _: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Retry a Stripe transfer for a booking where the automatic transfer failed."""
+    """Mark a booking as manually paid out."""
     b = await session.get(Booking, booking_id)
     if not b:
         raise HTTPException(404, "Booking not found")
-    if b.paid_out and b.stripe_transfer_id:
-        return {"detail": "Already transferred", "transfer_id": b.stripe_transfer_id}
-    listing = await session.get(Listing, b.listing_id)
-    host = await session.get(User, listing.seller_id)
-    if not host or not host.stripe_account_id:
-        raise HTTPException(422, "Host has no Stripe Connect account")
-    await _transfer_to_host(b, host.stripe_account_id, session)
-    return {
-        "booking_id": b.id,
-        "transfer_id": b.stripe_transfer_id,
-        "amount_eur": b.seller_earnings_eur,
-        "paid_out": b.paid_out,
-    }
+    if b.paid_out:
+        return {"detail": "Already marked as paid out", "booking_id": b.id}
+    b.paid_out = True
+    b.paid_out_at = datetime.now(timezone.utc)
+    await session.commit()
+    return {"booking_id": b.id, "amount_eur": b.seller_earnings_eur, "paid_out": True}
 
 
 @app.post("/api/admin/geocode-listings")
@@ -1082,56 +1062,19 @@ async def admin_confirm_booking(
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
 
 
-# ── Stripe Connect (host onboarding) ─────────────────────────────────────────
+# ── Payout account (payouts processed manually) ───────────────────────────────
 
-@app.post("/api/seller/stripe/onboard", response_model=StripeOnboardResponse)
-async def stripe_onboard(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """Create or retrieve a Stripe Express account and return an onboarding link."""
-    if not current_user.stripe_account_id:
-        account = stripe_lib.Account.create(
-            type="express",
-            email=current_user.email,
-            capabilities={"transfers": {"requested": True}},
-            business_type="individual",
-        )
-        current_user.stripe_account_id = account.id
-        await session.commit()
-
-    link = stripe_lib.AccountLink.create(
-        account=current_user.stripe_account_id,
-        refresh_url=f"{settings.frontend_url}/sell/dashboard?stripe=refresh",
-        return_url=f"{settings.frontend_url}/sell/dashboard?stripe=success",
-        type="account_onboarding",
-    )
-    return StripeOnboardResponse(url=link.url)
+@app.post("/api/seller/stripe/onboard")
+async def stripe_onboard(_: User = Depends(require_role("seller", "admin"))):
+    raise HTTPException(503, "Payout onboarding is not available. Earnings are paid out manually.")
 
 
-@app.get("/api/seller/stripe/status", response_model=StripeStatusResponse)
-async def stripe_status(
-    current_user: User = Depends(require_role("seller", "admin")),
-):
-    """Check whether the host's Stripe Connect account is fully onboarded."""
-    if not current_user.stripe_account_id:
-        return StripeStatusResponse(
-            onboarded=False, charges_enabled=False, payouts_enabled=False, account_id=None
-        )
-    try:
-        acct = stripe_lib.Account.retrieve(current_user.stripe_account_id)
-        return StripeStatusResponse(
-            onboarded=acct.charges_enabled and acct.payouts_enabled,
-            charges_enabled=acct.charges_enabled,
-            payouts_enabled=acct.payouts_enabled,
-            account_id=current_user.stripe_account_id,
-        )
-    except Exception as exc:
-        logger.error("Stripe account retrieve failed: %s", exc)
-        raise HTTPException(502, "Could not reach Stripe")
+@app.get("/api/seller/stripe/status")
+async def stripe_status(_: User = Depends(require_role("seller", "admin"))):
+    return {"onboarded": False, "charges_enabled": False, "payouts_enabled": False, "account_id": None}
 
 
-# ── Stripe checkout ───────────────────────────────────────────────────────────
+# ── Mollie checkout ───────────────────────────────────────────────────────────
 
 @app.post("/api/checkout")
 async def create_checkout(
@@ -1164,30 +1107,25 @@ async def create_checkout(
     session.add(booking)
     await session.flush()  # get booking.id before commit
 
-    # Create Stripe Checkout session
-    checkout = stripe_lib.checkout.Session.create(
-        payment_method_types=["card"],
-        mode="payment",
-        line_items=[{
-            "price_data": {
-                "currency": "eur",
-                "unit_amount": int(total * 100),  # cents
-                "product_data": {
-                    "name": f"{body.package_kwh} kWh — {listing.title}",
-                    "description": f"{listing.address}, {listing.city}",
-                },
-            },
-            "quantity": 1,
-        }],
-        metadata={"booking_id": str(booking.id)},
-        success_url=f"{settings.frontend_url}/charge/success?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{settings.frontend_url}/charge/{listing.id}?cancelled=1",
-    )
+    # Create Mollie payment
+    try:
+        payment = await _mollie("POST", "/payments", json={
+            "amount": {"currency": "EUR", "value": f"{total:.2f}"},
+            "description": f"{body.package_kwh} kWh — {listing.title}",
+            "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
+            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie",
+            "cancelUrl": f"{settings.frontend_url}/charge/{listing.id}?cancelled=1",
+            "metadata": {"booking_id": str(booking.id)},
+        })
+    except Exception as exc:
+        logger.error("Mollie payment creation failed: %s", exc)
+        raise HTTPException(502, "Could not create payment. Please try again.")
 
-    booking.stripe_session_id = checkout.id
+    booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
     await session.commit()
 
-    return {"checkout_url": checkout.url, "booking_id": booking.id}
+    checkout_url = payment["_links"]["checkout"]["href"]
+    return {"checkout_url": checkout_url, "booking_id": booking.id}
 
 
 # ── Shelly Premium host endpoints ─────────────────────────────────────────────
@@ -1380,80 +1318,77 @@ async def ocpp_unregister(
     return {"ok": True}
 
 
-@app.post("/api/webhooks/stripe")
-async def stripe_webhook(request: Request, session: AsyncSession = Depends(get_session)):
-    payload = await request.body()
-    sig = request.headers.get("stripe-signature", "")
+@app.post("/api/webhooks/mollie")
+async def mollie_webhook(
+    request: Request,
+    id: Optional[str] = Form(None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Mollie sends a form POST with the payment ID; we fetch the payment to verify status."""
+    payment_id = id
+    if not payment_id:
+        # Some Mollie test calls send an empty body
+        return JSONResponse({"received": True})
+
+    logger.info("Mollie webhook received: payment_id=%s", payment_id)
 
     try:
-        event = stripe_lib.Webhook.construct_event(
-            payload, sig, settings.stripe_webhook_secret
-        )
+        payment = await _mollie("GET", f"/payments/{payment_id}")
     except Exception as exc:
-        logger.error("Webhook signature verification failed: %s", exc)
-        raise HTTPException(400, "Invalid webhook signature")
+        logger.error("Could not fetch Mollie payment %s: %s", payment_id, exc)
+        return JSONResponse({"received": True})
 
-    event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", "unknown")
-    logger.info("Stripe webhook received: type=%s", event_type)
+    if payment.get("status") != "paid":
+        logger.info("Mollie payment %s status=%s — ignoring", payment_id, payment.get("status"))
+        return JSONResponse({"received": True})
+
+    # Look up booking by stored payment ID (cross-checks against metadata as fallback)
+    b = (await session.execute(
+        select(Booking).where(Booking.stripe_session_id == payment_id)
+    )).scalar_one_or_none()
+
+    if not b:
+        booking_id = int((payment.get("metadata") or {}).get("booking_id", 0))
+        if booking_id:
+            b = await session.get(Booking, booking_id)
+            if b and b.stripe_session_id != payment_id:
+                logger.warning("Booking %d payment ID mismatch — ignoring", booking_id)
+                b = None
 
     try:
-        if event_type == "checkout.session.completed":
-            # Support both dict-style (older Stripe lib) and attribute-style (newer)
-            data_obj = event["data"]["object"] if isinstance(event, dict) else event.data.object
-            metadata = data_obj.get("metadata", {}) if isinstance(data_obj, dict) else (getattr(data_obj, "metadata", None) or {})
-            booking_id = int(metadata.get("booking_id", 0))
-            logger.info("checkout.session.completed booking_id=%s metadata=%s", booking_id, metadata)
-            # Cross-check session ID to prevent booking_id metadata tampering
-            session_id_from_event = data_obj.get("id", "") if isinstance(data_obj, dict) else getattr(data_obj, "id", "")
-            if booking_id:
-                b = await session.get(Booking, booking_id)
-                if b and b.stripe_session_id != session_id_from_event:
-                    logger.warning("Booking %d session ID mismatch — ignoring event", booking_id)
-                elif b and b.status == BookingStatus.pending and not b.stripe_transfer_id:
-                    b.status = BookingStatus.confirmed
-                    b.pin_code = _gen_pin()
-                    await session.commit()
-                    logger.info("Booking %d confirmed via webhook", booking_id)
-                    buyer = await session.get(User, b.buyer_id)
-                    listing = await session.get(Listing, b.listing_id)
-                    host = await session.get(User, listing.seller_id) if listing else None
-                    if buyer and listing:
-                        await send_pin_email(buyer.email, buyer.full_name, b, listing)
-                        if host:
-                            await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
-                    # Immediately transfer 80% to host's Stripe Connect account
-                    if host and host.stripe_account_id:
-                        await _transfer_to_host(b, host.stripe_account_id, session)
-                    else:
-                        logger.warning(
-                            "Booking %d: host has no Stripe account — transfer skipped", booking_id
-                        )
-                    # Auto-start: Shelly relay OR OCPP (mutually exclusive per listing)
-                    if listing and listing.ocpp_charge_point_id:
-                        asyncio.create_task(_ocpp_start_session(b, listing))
-                    elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
-                        asyncio.create_task(_shelly_start_session(b, listing))
-                else:
-                    logger.warning("Booking %d status=%s transfer=%s", booking_id, b.status if b else "NOT FOUND", b.stripe_transfer_id if b else None)
-            else:
-                logger.warning("No booking_id in metadata: %s", metadata)
+        if b and b.status == BookingStatus.pending:
+            b.status = BookingStatus.confirmed
+            b.pin_code = _gen_pin()
+            await session.commit()
+            logger.info("Booking %d confirmed via Mollie webhook", b.id)
+            buyer = await session.get(User, b.buyer_id)
+            listing = await session.get(Listing, b.listing_id)
+            host = await session.get(User, listing.seller_id) if listing else None
+            if buyer and listing:
+                await send_pin_email(buyer.email, buyer.full_name, b, listing)
+                if host:
+                    await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
+            await _transfer_to_host(b, session)
+            if listing and listing.ocpp_charge_point_id:
+                asyncio.create_task(_ocpp_start_session(b, listing))
+            elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+                asyncio.create_task(_shelly_start_session(b, listing))
+        else:
+            logger.warning("Mollie webhook: booking not found or already processed for payment %s", payment_id)
     except Exception as exc:
-        logger.error("Webhook handler error: %s", exc, exc_info=True)
-        return JSONResponse(status_code=500, content={"received": False})
+        logger.error("Mollie webhook handler error: %s", exc, exc_info=True)
 
     return JSONResponse({"received": True})
 
 
-@app.get("/api/checkout/verify/{session_id}")
+@app.get("/api/checkout/verify/{booking_id}")
 async def verify_checkout(
-    session_id: str,
+    booking_id: int,
     current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Called by success page — verifies payment with Stripe and confirms booking immediately."""
-    b = (await session.execute(
-        select(Booking).where(Booking.stripe_session_id == session_id)
-    )).scalar_one_or_none()
+    """Called by success page — verifies payment with Mollie and confirms booking immediately."""
+    b = await session.get(Booking, booking_id)
 
     if not b or b.buyer_id != current_user.id:
         raise HTTPException(404, "Booking not found")
@@ -1464,45 +1399,41 @@ async def verify_checkout(
         b.buyer = current_user
         return _booking_out(b, show_pin=True)
 
-    # Ask Stripe directly — don't wait for webhook
-    try:
-        stripe_session = stripe_lib.checkout.Session.retrieve(session_id)
-        # Verify the Stripe session ID matches the booking
-        if stripe_session.get("id") != session_id:
-            raise HTTPException(400, "Session ID mismatch")
-        if stripe_session.payment_status == "paid" and b.status == BookingStatus.pending and not b.stripe_transfer_id:
-            b.status = BookingStatus.confirmed
-            b.pin_code = _gen_pin()
-            await session.commit()
-            logger.info("Booking %d confirmed via verify endpoint", b.id)
-            listing = await session.get(Listing, b.listing_id)
-            await send_pin_email(current_user.email, current_user.full_name, b, listing)
-            host = await session.get(User, listing.seller_id)
-            if host:
-                await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
-                if host.stripe_account_id:
-                    await _transfer_to_host(b, host.stripe_account_id, session)
-            if listing and listing.ocpp_charge_point_id:
-                asyncio.create_task(_ocpp_start_session(b, listing))
-            elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
-                asyncio.create_task(_shelly_start_session(b, listing))
-    except Exception as exc:
-        logger.error("Stripe verify error: %s", exc)
+    # Ask Mollie directly — don't wait for webhook
+    if b.stripe_session_id:
+        try:
+            payment = await _mollie("GET", f"/payments/{b.stripe_session_id}")
+            if payment.get("status") == "paid" and b.status == BookingStatus.pending:
+                b.status = BookingStatus.confirmed
+                b.pin_code = _gen_pin()
+                await session.commit()
+                logger.info("Booking %d confirmed via verify endpoint", b.id)
+                listing = await session.get(Listing, b.listing_id)
+                host = await session.get(User, listing.seller_id) if listing else None
+                if listing:
+                    await send_pin_email(current_user.email, current_user.full_name, b, listing)
+                if host:
+                    await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
+                await _transfer_to_host(b, session)
+                if listing and listing.ocpp_charge_point_id:
+                    asyncio.create_task(_ocpp_start_session(b, listing))
+                elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+                    asyncio.create_task(_shelly_start_session(b, listing))
+        except Exception as exc:
+            logger.error("Mollie verify error for booking %d: %s", booking_id, exc)
 
     b.listing = await session.get(Listing, b.listing_id)
     b.buyer = current_user
     return _booking_out(b, show_pin=True)
 
 
-@app.get("/api/bookings/by-session/{session_id}")
-async def booking_by_session(
-    session_id: str,
+@app.get("/api/bookings/{booking_id}")
+async def get_booking(
+    booking_id: int,
     current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    b = (await session.execute(
-        select(Booking).where(Booking.stripe_session_id == session_id)
-    )).scalar_one_or_none()
+    b = await session.get(Booking, booking_id)
     if not b or b.buyer_id != current_user.id:
         raise HTTPException(404, "Booking not found")
     b.listing = await session.get(Listing, b.listing_id)
