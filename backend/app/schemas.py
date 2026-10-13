@@ -54,6 +54,13 @@ class ListingCreate(BaseModel):
     description: Optional[str] = None
     address: str = Field(min_length=5, max_length=300)
     city: str = Field(min_length=2, max_length=100)
+
+    @field_validator("address")
+    @classmethod
+    def address_must_have_number(cls, v: str) -> str:
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Address must include a house number (e.g. Mannerheimintie 1)")
+        return v
     country: str = "Finland"
     charger_type: str = "Type 2"
     max_power_kw: float = Field(default=11.0, ge=1.4, le=350)

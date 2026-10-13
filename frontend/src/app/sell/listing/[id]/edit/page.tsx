@@ -97,7 +97,16 @@ export default function EditListing() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Street address</label>
-              <input className="input" placeholder="Mannerheimintie 1" value={form.address} onChange={(e) => set("address", e.target.value)} required />
+              <input
+                className="input"
+                placeholder="Mannerheimintie 1"
+                value={form.address}
+                onChange={(e) => set("address", e.target.value)}
+                pattern=".*\d+.*"
+                title="Must include a house number (e.g. Mannerheimintie 1)"
+                required
+              />
+              <p className="text-ash text-xs mt-1">Include the house number, e.g. Fastbölentie 12a</p>
             </div>
             <div>
               <label className="label">City</label>
