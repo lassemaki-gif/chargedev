@@ -137,7 +137,7 @@ export default function AdminDashboard() {
     { key: "users", label: `Users (${users.length})` },
     { key: "listings", label: `Listings (${listings.length})` },
     { key: "bookings", label: `Bookings (${bookings.length})` },
-    { key: "agent", label: "Stripe agent" },
+    { key: "agent", label: "Mollie agent" },
   ];
 
   return (
@@ -222,19 +222,12 @@ export default function AdminDashboard() {
                       <div className="mt-2 flex items-center gap-4 text-sm flex-wrap">
                         <span className="text-volt font-medium">€{pending.toFixed(2)} pending transfer</span>
                         <span className="text-ash">€{paid.toFixed(2)} transferred</span>
-                        {seller.stripe_account_id
-                          ? <span className="badge-green">Stripe connected</span>
-                          : <span className="badge-yellow">No Stripe account</span>
-                        }
                       </div>
                     </div>
-                    {pendingBookings.length > 0 && !seller.stripe_account_id && (
-                      <span className="shrink-0 text-xs text-ash">Host must connect Stripe to receive payouts</span>
-                    )}
-                    {pendingBookings.length > 0 && seller.stripe_account_id && (
+                    {pendingBookings.length > 0 && (
                       <button
                         onClick={async () => {
-                          if (!confirm(`Retry Stripe transfer for ${pendingBookings.length} booking(s) totalling €${pending.toFixed(2)}?`)) return;
+                          if (!confirm(`Mark ${pendingBookings.length} booking(s) totalling €${pending.toFixed(2)} as paid out?`)) return;
                           for (const b of pendingBookings) {
                             try {
                               await api.adminRetryTransfer(b.id);
@@ -344,13 +337,13 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Stripe Agent */}
+        {/* Mollie Agent */}
         {tab === "agent" && (
           <div className="flex flex-col h-[600px]">
             <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-1">
               {agentMessages.length === 0 && (
                 <div className="text-ash text-sm">
-                  Ask about your Stripe balance, recent payments, refunds, transfers, or disputes.
+                  Ask about your Mollie balance, recent payments, refunds, or disputes.
                 </div>
               )}
               {agentMessages.map((m, i) => (

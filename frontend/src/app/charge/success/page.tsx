@@ -108,7 +108,7 @@ function SuccessContent() {
       </div>
       <div className="flex items-center justify-center gap-1.5 text-ash text-xs mb-6">
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        <span>Payment processed securely by <span className="text-white/70">Stripe</span></span>
+        <span>Payment processed securely by <span className="text-white/70">Mollie</span></span>
       </div>
       <div className="flex gap-3">
         <button onClick={() => router.push("/bookings")} className="btn-volt flex-1 text-sm text-center">
