@@ -138,6 +138,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
               <span className="text-white font-semibold text-sm">ChargedEV</span>
             </div>
             <p className="text-ash text-xs">{m.countryNameEn} · chargedev.io/{m.id}</p>
+            <p className="text-ash text-xs mt-1">ChargedEV.io Finland · VAT ID: FI36604922</p>
           </div>
           <div className="flex items-center gap-1.5 text-ash text-xs">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>

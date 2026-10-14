@@ -259,6 +259,7 @@ export default function Landing() {
               <span className="text-white font-semibold text-sm">ChargedEV</span>
             </div>
             <p className="text-ash text-xs">The peer-to-peer home charging network.</p>
+            <p className="text-ash text-xs mt-1">ChargedEV.io Finland · VAT ID: FI36604922</p>
           </div>
           <div className="flex flex-col sm:items-end gap-3">
             <div className="flex gap-5 text-ash text-sm">
