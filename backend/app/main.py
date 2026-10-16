@@ -1030,6 +1030,20 @@ async def geocode_all_listings(
     return {"updated": updated, "failed": failed, "total": len(rows)}
 
 
+@app.put("/api/admin/listings/{listing_id}/toggle")
+async def admin_toggle_listing(
+    listing_id: int,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(404, "Listing not found")
+    listing.is_available = not listing.is_available
+    await session.commit()
+    return {"is_available": listing.is_available}
+
+
 @app.put("/api/admin/users/{user_id}/toggle")
 async def toggle_user(
     user_id: int,

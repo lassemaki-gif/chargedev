@@ -113,6 +113,7 @@ export const api = {
   adminListings: () => req<Listing[]>("GET", "/api/admin/listings"),
   adminBookings: () => req<Booking[]>("GET", "/api/admin/bookings"),
   toggleUser: (id: number) => req<{ is_active: boolean }>("PUT", `/api/admin/users/${id}/toggle`),
+  adminToggleListing: (id: number) => req<{ is_available: boolean }>("PUT", `/api/admin/listings/${id}/toggle`),
 };
 
 export interface Listing {

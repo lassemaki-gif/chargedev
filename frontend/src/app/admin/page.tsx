@@ -281,7 +281,15 @@ export default function AdminDashboard() {
                   <div className="text-ash text-sm">{l.address}, {l.city} · {l.charger_type} · {l.max_power_kw} kW · €{l.price_per_kwh}/kWh</div>
                   <div className="text-ash text-xs mt-1">by {l.seller_name}</div>
                 </div>
-                <span className={l.is_available ? "badge-green" : "badge-gray"}>{l.is_available ? "Active" : "Inactive"}</span>
+                <button
+                  onClick={async () => {
+                    const res = await api.adminToggleListing(l.id);
+                    setListings((prev) => prev.map((x) => x.id === l.id ? { ...x, is_available: res.is_available } : x));
+                  }}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${l.is_available ? "bg-green-900/40 text-green-400 hover:bg-red-900/30 hover:text-red-400" : "bg-gray-800 text-gray-400 hover:bg-green-900/30 hover:text-green-400"}`}
+                >
+                  {l.is_available ? "Active" : "Inactive"}
+                </button>
               </div>
             ))}
           </div>
