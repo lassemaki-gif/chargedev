@@ -367,7 +367,7 @@ def real_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-limiter = Limiter(key_func=real_ip, default_limits=[])
+limiter = Limiter(key_func=real_ip, default_limits=["60/minute"])
 
 
 async def geocode(address: str, city: str, country: str) -> tuple:
@@ -1096,6 +1096,8 @@ async def create_checkout(
     current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
+    if not current_user.email_verified:
+        raise HTTPException(403, "Please verify your email address before booking")
     if body.package_kwh not in PACKAGES_KWH:
         raise HTTPException(422, f"Package must be one of {PACKAGES_KWH} kWh")
     listing = await session.get(Listing, body.listing_id)
@@ -1363,9 +1365,9 @@ async def mollie_webhook(
         logger.info("Mollie payment %s status=%s — ignoring", payment_id, payment.get("status"))
         return JSONResponse({"received": True})
 
-    # Look up booking by stored payment ID (cross-checks against metadata as fallback)
+    # Look up booking by stored payment ID (with row lock to prevent double-confirmation)
     b = (await session.execute(
-        select(Booking).where(Booking.stripe_session_id == payment_id)
+        select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
     )).scalar_one_or_none()
 
     if not b:
@@ -1409,7 +1411,9 @@ async def verify_checkout(
     session: AsyncSession = Depends(get_session),
 ):
     """Called by success page — verifies payment with Mollie and confirms booking immediately."""
-    b = await session.get(Booking, booking_id)
+    b = (await session.execute(
+        select(Booking).where(Booking.id == booking_id).with_for_update()
+    )).scalar_one_or_none()
 
     if not b or b.buyer_id != current_user.id:
         raise HTTPException(404, "Booking not found")

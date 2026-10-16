@@ -5,6 +5,10 @@ const BACKEND = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000';
 
 async function handler(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
+  const joinedPath = '/' + path.join('/');
+  if (joinedPath.startsWith('/api/webhooks')) {
+    return new Response('Forbidden', { status: 403 });
+  }
   const url = `${BACKEND}/${path.join('/')}${req.nextUrl.search}`;
 
   const cookieStore = await cookies();

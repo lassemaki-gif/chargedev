@@ -10,10 +10,17 @@ _SHELLY_HOST_RE = re.compile(r'^[a-z0-9-]+\.shelly\.cloud$')
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=72)
     full_name: str = Field(min_length=2, max_length=120)
     phone: Optional[str] = None
     role: str = "buyer"  # buyer | seller
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if v.isalpha():
+            raise ValueError("Password must contain at least one number or special character")
+        return v
 
 
 class LoginRequest(BaseModel):

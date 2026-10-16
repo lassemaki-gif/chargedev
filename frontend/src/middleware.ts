@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function jwtRole(token: string): string | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload?.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // ── Admin route protection ────────────────────────────────────────────────
   if (pathname.startsWith('/admin')) {
     const token = req.cookies.get('ll_token')?.value;
-    if (!token) {
+    if (!token || jwtRole(token) !== 'admin') {
       return NextResponse.redirect(new URL('/', req.url));
     }
-    // Allow through — server components can do a deeper role check if needed
   }
 
   // ── CSP nonce ─────────────────────────────────────────────────────────────
@@ -22,7 +30,7 @@ export function middleware(req: NextRequest) {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://chargedev-production.up.railway.app https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com",
+    "connect-src 'self' https://chargedev-production.up.railway.app https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com https://api.mollie.com",
     "frame-ancestors 'none'",
   ].join('; ');
 
