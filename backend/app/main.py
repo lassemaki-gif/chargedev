@@ -1125,7 +1125,7 @@ async def create_checkout(
             "amount": {"currency": "EUR", "value": f"{total:.2f}"},
             "description": f"{body.package_kwh} kWh — {listing.title}",
             "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
-            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie",
+            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
             "metadata": {"booking_id": str(booking.id)},
         })
     except httpx.HTTPStatusError as exc:
@@ -1339,6 +1339,13 @@ async def mollie_webhook(
     session: AsyncSession = Depends(get_session),
 ):
     """Mollie sends a form POST with the payment ID; we fetch the payment to verify status."""
+    # Verify shared secret to prevent webhook spoofing
+    incoming_secret = request.query_params.get("webhook_secret", "")
+    expected_secret = settings.mollie_webhook_secret
+    if not expected_secret or not secrets.compare_digest(incoming_secret, expected_secret):
+        logger.warning("Mollie webhook: invalid or missing webhook_secret")
+        raise HTTPException(401, "Invalid webhook secret")
+
     payment_id = id
     if not payment_id:
         # Some Mollie test calls send an empty body

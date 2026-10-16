@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     default_price_per_kwh: float = 0.25  # EUR
 
     mollie_api_key: str = ""
+    mollie_webhook_secret: str = ""
     backend_url: str = "https://chargedev-production.up.railway.app"
     frontend_url: str = "https://chargedev.io"
     resend_api_key: str = ""
