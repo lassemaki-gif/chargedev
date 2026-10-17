@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus } from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 function statusBadge(s: string) {
   if (s === "completed") return <span className="badge-green">Completed</span>;
@@ -22,11 +22,13 @@ export default function SellerDashboard() {
 
 function SellerDashboardInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<SellerEarnings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [feeLoading, setFeeLoading] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [shellyOpen, setShellyOpen] = useState<number | null>(null);
@@ -39,6 +41,17 @@ function SellerDashboardInner() {
   const [ocppSaving, setOcppSaving] = useState(false);
 
   useEffect(() => {
+    // Check if returning from joining fee payment
+    const paymentId = searchParams.get("joining_fee") || sessionStorage.getItem("joining_fee_payment_id");
+    if (paymentId) {
+      sessionStorage.removeItem("joining_fee_payment_id");
+      api.verifyJoiningFee(paymentId).catch(() => {}).finally(() => {
+        // Remove query param cleanly
+        const url = new URL(window.location.href);
+        url.searchParams.delete("joining_fee");
+        window.history.replaceState({}, "", url.toString());
+      });
+    }
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
       .then(([l, b, e]) => {
         setListings(l);
@@ -52,6 +65,20 @@ function SellerDashboardInner() {
       })
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function payFee() {
+    setFeeLoading(true);
+    try {
+      const res = await api.payJoiningFee();
+      if ("checkout_url" in res) {
+        sessionStorage.setItem("joining_fee_payment_id", res.payment_id);
+        window.location.href = res.checkout_url;
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to start payment");
+      setFeeLoading(false);
+    }
+  }
 
   async function enableNotifications() {
     if (!("Notification" in window)) { alert("Your browser does not support notifications."); return; }
@@ -172,7 +199,9 @@ function SellerDashboardInner() {
               </button>
             )}
             {notifEnabled && <span className="text-volt text-sm self-center">🔔</span>}
-            <Link href="/sell/listing/new" className="btn-volt text-sm px-4 py-2">+ Add</Link>
+            {earnings?.joining_fee_paid !== false && (
+              <Link href="/sell/listing/new" className="btn-volt text-sm px-4 py-2">+ Add</Link>
+            )}
           </div>
         </div>
 
@@ -194,6 +223,24 @@ function SellerDashboardInner() {
               <div className="text-ash text-sm mb-1">Transferred to you</div>
               <div className="text-2xl font-bold text-white">€{earnings.paid_out_eur.toFixed(2)}</div>
             </div>
+          </div>
+        )}
+
+        {/* Joining fee gate */}
+        {earnings?.joining_fee_paid === false && (
+          <div className="card border-volt/40 mb-8">
+            <h2 className="font-semibold text-white mb-1">One-time host joining fee</h2>
+            <p className="text-ash text-sm mb-4">
+              A one-time €1 joining fee is required to activate your host account and create listings.
+              This helps us keep the platform free of bots and spam.
+            </p>
+            <button
+              onClick={payFee}
+              disabled={feeLoading}
+              className="btn-volt text-sm px-6 disabled:opacity-40"
+            >
+              {feeLoading ? "Redirecting…" : "Pay €1 joining fee"}
+            </button>
           </div>
         )}
 

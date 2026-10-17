@@ -64,6 +64,8 @@ export const api = {
   sellerEarnings: () => req<SellerEarnings>("GET", "/api/seller/earnings"),
   stripeOnboard: () => req<{ url: string }>("POST", "/api/seller/stripe/onboard"),
   stripeStatus: () => req<{ onboarded: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("GET", "/api/seller/stripe/status"),
+  payJoiningFee: () => req<{ checkout_url: string; payment_id: string } | { status: string }>("POST", "/api/seller/joining-fee"),
+  verifyJoiningFee: (paymentId: string) => req<{ paid: boolean }>("GET", `/api/seller/joining-fee/verify?payment_id=${paymentId}`),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),
   updateListing: (id: number, body: Partial<Listing>) => req<Listing>("PUT", `/api/seller/listings/${id}`, body),
   myListings: () => req<Listing[]>("GET", "/api/seller/listings"),
@@ -208,6 +210,7 @@ export interface SellerEarnings {
   total_eur: number;
   stripe_onboarded: boolean;
   stripe_account_id: string | null;
+  joining_fee_paid: boolean | null;
 }
 
 export interface PlatformStats {

@@ -46,6 +46,7 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     iban: Mapped[Optional[str]] = mapped_column(String(34))  # kept for legacy data, no longer used
     stripe_account_id: Mapped[Optional[str]] = mapped_column(String(255))
+    joining_fee_paid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

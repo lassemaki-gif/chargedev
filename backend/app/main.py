@@ -635,6 +635,7 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
         full_name=body.full_name,
         phone=body.phone,
         role=UserRole(body.role),
+        joining_fee_paid=False if body.role == "seller" else None,
     )
     session.add(user)
     await session.commit()
@@ -741,6 +742,8 @@ async def create_listing(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
+    if current_user.joining_fee_paid is False:
+        raise HTTPException(402, "Please pay the €1 host joining fee before creating a listing")
     lat, lng = await geocode(body.address, body.city, body.country)
     listing = Listing(seller_id=current_user.id, lat=lat, lng=lng, **body.model_dump())
     session.add(listing)
@@ -790,6 +793,7 @@ async def seller_earnings(
         total_eur=round(pending + paid, 2),
         stripe_onboarded=False,
         stripe_account_id=None,
+        joining_fee_paid=current_user.joining_fee_paid,
     )
 
 
@@ -1074,6 +1078,51 @@ async def admin_confirm_booking(
     b.pin_code = _gen_pin()
     await session.commit()
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
+
+
+# ── Host joining fee ─────────────────────────────────────────────────────────
+
+@app.post("/api/seller/joining-fee")
+async def create_joining_fee_payment(
+    current_user: User = Depends(require_role("seller", "admin")),
+):
+    if current_user.joining_fee_paid is not False:
+        return {"status": "already_paid"}
+    try:
+        payment = await _mollie("POST", "/payments", json={
+            "amount": {"currency": "EUR", "value": "1.00"},
+            "description": "ChargedEV host joining fee",
+            "redirectUrl": f"{settings.frontend_url}/sell/dashboard",
+            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
+            "metadata": {"type": "joining_fee", "user_id": str(current_user.id)},
+        })
+    except Exception as exc:
+        logger.error("Mollie joining fee payment creation failed: %s", exc)
+        raise HTTPException(502, "Could not create payment. Please try again.")
+    return {"checkout_url": payment["_links"]["checkout"]["href"], "payment_id": payment["id"]}
+
+
+@app.get("/api/seller/joining-fee/verify")
+async def verify_joining_fee(
+    payment_id: str,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    if current_user.joining_fee_paid:
+        return {"paid": True}
+    try:
+        payment = await _mollie("GET", f"/payments/{payment_id}")
+    except Exception as exc:
+        logger.error("Mollie joining fee verify failed: %s", exc)
+        raise HTTPException(502, "Could not verify payment")
+    metadata = payment.get("metadata") or {}
+    if str(metadata.get("user_id")) != str(current_user.id):
+        raise HTTPException(403, "Payment does not belong to this account")
+    if payment.get("status") == "paid":
+        current_user.joining_fee_paid = True
+        await session.commit()
+        logger.info("Joining fee paid by user %d", current_user.id)
+    return {"paid": current_user.joining_fee_paid is True}
 
 
 # ── Payout account (payouts processed manually) ───────────────────────────────
@@ -1365,13 +1414,26 @@ async def mollie_webhook(
         logger.info("Mollie payment %s status=%s — ignoring", payment_id, payment.get("status"))
         return JSONResponse({"received": True})
 
+    metadata = payment.get("metadata") or {}
+
+    # Handle joining fee payments
+    if metadata.get("type") == "joining_fee":
+        user_id = int(metadata.get("user_id", 0))
+        if user_id:
+            host = await session.get(User, user_id)
+            if host and not host.joining_fee_paid:
+                host.joining_fee_paid = True
+                await session.commit()
+                logger.info("Joining fee confirmed via webhook for user %d", user_id)
+        return JSONResponse({"received": True})
+
     # Look up booking by stored payment ID (with row lock to prevent double-confirmation)
     b = (await session.execute(
         select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
     )).scalar_one_or_none()
 
     if not b:
-        booking_id = int((payment.get("metadata") or {}).get("booking_id", 0))
+        booking_id = int(metadata.get("booking_id", 0))
         if booking_id:
             b = await session.get(Booking, booking_id)
             if b and b.stripe_session_id != payment_id:

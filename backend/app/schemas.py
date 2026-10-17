@@ -212,6 +212,7 @@ class SellerEarnings(BaseModel):
     total_eur: float
     stripe_onboarded: bool
     stripe_account_id: Optional[str]
+    joining_fee_paid: Optional[bool] = None
 
 
 class StripeOnboardResponse(BaseModel):
