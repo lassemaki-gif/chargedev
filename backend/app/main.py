@@ -1292,7 +1292,7 @@ async def create_checkout(
     booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
     if host and host.stripe_account_id:
         booking.paid_out = True  # Mollie routing already transfers earnings at checkout
-        booking.paid_out_at = datetime.now(timezone.utc)
+        booking.paid_out_at = datetime.utcnow()
     await session.commit()
 
     checkout_url = payment["_links"]["checkout"]["href"]
