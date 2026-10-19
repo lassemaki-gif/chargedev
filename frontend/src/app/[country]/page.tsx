@@ -107,7 +107,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
         {[
           { icon: "🔐", t: "PIN-secured sessions", b: "Every booking generates a unique 6-digit PIN. No PIN, no charge." },
           { icon: "⚡", t: "Instant confirmation", b: "Your PIN arrives the moment payment clears — no waiting." },
-          { icon: "🌍", t: "Available in 59 markets", b: "Home charging network available worldwide." },
+          { icon: "🌍", t: "Available across Europe", b: "Covering EU, UK, Norway, Switzerland and Iceland." },
         ].map((f) => (
           <div key={f.t} className="flex flex-col gap-2">
             <span className="text-2xl">{f.icon}</span>
