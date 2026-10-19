@@ -1132,7 +1132,7 @@ async def verify_joining_fee(
 
 @app.get("/api/seller/mollie/connect")
 async def mollie_connect_redirect(current_user: User = Depends(require_role("seller", "admin"))):
-    """Redirect seller to Mollie OAuth authorization page."""
+    """Return the Mollie OAuth authorization URL for the frontend to redirect to."""
     state = create_access_token(current_user.id, current_user.role)
     params = urlencode({
         "client_id": settings.mollie_client_id,
@@ -1141,7 +1141,7 @@ async def mollie_connect_redirect(current_user: User = Depends(require_role("sel
         "scope": "payments.write organizations.read",
         "state": state,
     })
-    return RedirectResponse(f"https://my.mollie.com/oauth2/authorize?{params}")
+    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
 
 
 @app.get("/api/seller/mollie/callback")

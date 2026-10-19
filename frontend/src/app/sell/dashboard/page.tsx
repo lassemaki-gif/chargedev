@@ -277,12 +277,20 @@ function SellerDashboardInner() {
               <p className="text-ash text-sm mb-4">
                 Connect your Mollie account to receive 80% of each booking automatically — paid daily to your bank account.
               </p>
-              <a
-                href="/api/proxy/api/seller/mollie/connect"
-                className="btn-volt text-sm px-6 inline-block"
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/proxy/api/seller/mollie/connect", { credentials: "include" });
+                    const { auth_url } = await res.json();
+                    window.location.href = auth_url;
+                  } catch {
+                    setError("Could not start Mollie connection. Please try again.");
+                  }
+                }}
+                className="btn-volt text-sm px-6"
               >
                 Connect with Mollie
-              </a>
+              </button>
             </>
           )}
         </div>
