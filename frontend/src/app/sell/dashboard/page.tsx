@@ -41,6 +41,12 @@ function SellerDashboardInner() {
   const [ocppSaving, setOcppSaving] = useState(false);
 
   useEffect(() => {
+    // Clean up Mollie Connect success param
+    if (searchParams.get("mollie") === "connected") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("mollie");
+      window.history.replaceState({}, "", url.toString());
+    }
     // Check if returning from joining fee payment
     const paymentId = searchParams.get("joining_fee") || sessionStorage.getItem("joining_fee_payment_id");
     if (paymentId) {
@@ -244,14 +250,41 @@ function SellerDashboardInner() {
           </div>
         )}
 
-        {/* Payouts */}
+        {/* Mollie Connect */}
         <div className="card mb-10">
-          <h2 className="font-semibold text-white mb-1">Payouts</h2>
-          <p className="text-ash text-sm">
-            Your earnings are paid out manually via bank transfer. Contact{" "}
-            <a href="mailto:support@chargedev.io" className="text-volt hover:underline">support@chargedev.io</a>{" "}
-            to set up your payout details.
-          </p>
+          <h2 className="font-semibold text-white mb-1">Payout account</h2>
+          {earnings?.mollie_connected ? (
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <span className="text-green-400 text-sm font-medium">Mollie connected ✓</span>
+                <p className="text-ash text-xs mt-0.5">Your 80% earnings are transferred automatically on each booking.</p>
+              </div>
+              <a
+                href="/api/proxy/api/seller/mollie/disconnect"
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (!confirm("Disconnect your Mollie account? Payouts will pause until reconnected.")) return;
+                  await fetch("/api/proxy/api/seller/mollie/disconnect", { method: "DELETE", credentials: "include" });
+                  window.location.reload();
+                }}
+                className="text-xs text-red-400 hover:text-red-300"
+              >
+                Disconnect
+              </a>
+            </div>
+          ) : (
+            <>
+              <p className="text-ash text-sm mb-4">
+                Connect your Mollie account to receive 80% of each booking automatically — paid daily to your bank account.
+              </p>
+              <a
+                href="/api/proxy/api/seller/mollie/connect"
+                className="btn-volt text-sm px-6 inline-block"
+              >
+                Connect with Mollie
+              </a>
+            </>
+          )}
         </div>
 
         {/* Listings */}

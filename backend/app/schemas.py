@@ -213,6 +213,7 @@ class SellerEarnings(BaseModel):
     stripe_onboarded: bool
     stripe_account_id: Optional[str]
     joining_fee_paid: Optional[bool] = None
+    mollie_connected: bool = False
 
 
 class StripeOnboardResponse(BaseModel):

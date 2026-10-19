@@ -8,12 +8,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from html import escape as html_escape
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
 import resend
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import func, select
@@ -23,6 +24,7 @@ from ocpp.v16 import ChargePoint as OcppCp
 from ocpp.v16 import call, call_result
 from ocpp.v16.enums import Action, RegistrationStatus, RemoteStartStopStatus
 
+from jose import JWTError, jwt as jose_jwt
 from .auth import (
     create_access_token, get_current_user, hash_password,
     require_role, verify_password,
@@ -794,6 +796,7 @@ async def seller_earnings(
         stripe_onboarded=False,
         stripe_account_id=None,
         joining_fee_paid=current_user.joining_fee_paid,
+        mollie_connected=bool(current_user.stripe_account_id),
     )
 
 
@@ -1125,11 +1128,91 @@ async def verify_joining_fee(
     return {"paid": current_user.joining_fee_paid is True}
 
 
-# ── Payout account (payouts processed manually) ───────────────────────────────
+# ── Mollie Connect (seller payout accounts) ───────────────────────────────────
+
+@app.get("/api/seller/mollie/connect")
+async def mollie_connect_redirect(current_user: User = Depends(require_role("seller", "admin"))):
+    """Redirect seller to Mollie OAuth authorization page."""
+    state = create_access_token(current_user.id, current_user.role)
+    params = urlencode({
+        "client_id": settings.mollie_client_id,
+        "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
+        "response_type": "code",
+        "scope": "payments.write organizations.read",
+        "state": state,
+    })
+    return RedirectResponse(f"https://my.mollie.com/oauth2/authorize?{params}")
+
+
+@app.get("/api/seller/mollie/callback")
+async def mollie_connect_callback(
+    code: str,
+    state: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Handle Mollie OAuth callback — exchange code for tokens and store org ID."""
+    try:
+        payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
+        user_id = int(payload["sub"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(400, "Invalid state parameter")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_resp = await client.post(
+            "https://api.mollie.com/oauth2/tokens",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.mollie_client_id,
+                "client_secret": settings.mollie_client_secret,
+                "code": code,
+                "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
+            },
+        )
+        token_resp.raise_for_status()
+        tokens = token_resp.json()
+        access_token = tokens["access_token"]
+        refresh_token = tokens.get("refresh_token", "")
+
+        org_resp = await client.get(
+            "https://api.mollie.com/v2/organizations/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        org_resp.raise_for_status()
+        org = org_resp.json()
+
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.stripe_account_id = org["id"]          # Mollie org ID
+    user.mollie_access_token = access_token
+    user.mollie_refresh_token = refresh_token
+    await session.commit()
+    logger.info("Mollie Connect completed for user %d, org %s", user_id, org["id"])
+    return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=connected")
+
+
+@app.get("/api/seller/mollie/status")
+async def mollie_connect_status(current_user: User = Depends(require_role("seller", "admin"))):
+    return {"connected": bool(current_user.stripe_account_id), "organization_id": current_user.stripe_account_id}
+
+
+@app.delete("/api/seller/mollie/disconnect")
+async def mollie_disconnect(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    current_user.stripe_account_id = None
+    current_user.mollie_access_token = None
+    current_user.mollie_refresh_token = None
+    await session.commit()
+    return {"ok": True}
+
+
+# ── Payout account (legacy stubs) ─────────────────────────────────────────────
 
 @app.post("/api/seller/stripe/onboard")
 async def stripe_onboard(_: User = Depends(require_role("seller", "admin"))):
-    raise HTTPException(503, "Payout onboarding is not available. Earnings are paid out manually.")
+    raise HTTPException(503, "Use Mollie Connect instead.")
 
 
 @app.get("/api/seller/stripe/status")
@@ -1170,15 +1253,24 @@ async def create_checkout(
     session.add(booking)
     await session.flush()  # get booking.id before commit
 
+    # Add routing if seller has Mollie Connect
+    host = await session.get(User, listing.seller_id)
+    payment_data: dict = {
+        "amount": {"currency": "EUR", "value": f"{total:.2f}"},
+        "description": f"{body.package_kwh} kWh — {listing.title}",
+        "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
+        "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
+        "metadata": {"booking_id": str(booking.id)},
+    }
+    if host and host.stripe_account_id:
+        payment_data["routing"] = [{
+            "amount": {"currency": "EUR", "value": f"{earnings:.2f}"},
+            "destination": {"type": "organization", "organizationId": host.stripe_account_id},
+        }]
+
     # Create Mollie payment
     try:
-        payment = await _mollie("POST", "/payments", json={
-            "amount": {"currency": "EUR", "value": f"{total:.2f}"},
-            "description": f"{body.package_kwh} kWh — {listing.title}",
-            "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
-            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
-            "metadata": {"booking_id": str(booking.id)},
-        })
+        payment = await _mollie("POST", "/payments", json=payment_data)
     except httpx.HTTPStatusError as exc:
         logger.error("Mollie payment creation failed: status=%s body=%s", exc.response.status_code, exc.response.text)
         raise HTTPException(502, f"Could not create payment: {exc.response.text}")
@@ -1187,6 +1279,9 @@ async def create_checkout(
         raise HTTPException(502, "Could not create payment. Please try again.")
 
     booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
+    if host and host.stripe_account_id:
+        booking.paid_out = True  # Mollie routing already transfers earnings at checkout
+        booking.paid_out_at = datetime.now(timezone.utc)
     await session.commit()
 
     checkout_url = payment["_links"]["checkout"]["href"]

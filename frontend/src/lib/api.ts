@@ -211,6 +211,7 @@ export interface SellerEarnings {
   stripe_onboarded: boolean;
   stripe_account_id: string | null;
   joining_fee_paid: boolean | null;
+  mollie_connected: boolean;
 }
 
 export interface PlatformStats {
