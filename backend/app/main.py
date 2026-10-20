@@ -1277,8 +1277,20 @@ async def create_checkout(
     try:
         payment = await _mollie("POST", "/payments", json=payment_data)
     except httpx.HTTPStatusError as exc:
-        logger.error("Mollie payment creation failed: status=%s body=%s", exc.response.status_code, exc.response.text)
-        raise HTTPException(502, f"Could not create payment: {exc.response.text}")
+        if exc.response.status_code == 422 and "routing" in exc.response.text:
+            # Seller's Mollie account not yet verified — fall back to no routing
+            logger.warning("Mollie routing rejected for booking (seller not yet verified) — retrying without routing")
+            payment_data.pop("routing", None)
+            booking.paid_out = False
+            booking.paid_out_at = None
+            try:
+                payment = await _mollie("POST", "/payments", json=payment_data)
+            except Exception as exc2:
+                logger.error("Mollie payment creation failed (no routing): %s", exc2)
+                raise HTTPException(502, "Could not create payment. Please try again.")
+        else:
+            logger.error("Mollie payment creation failed: status=%s body=%s", exc.response.status_code, exc.response.text)
+            raise HTTPException(502, f"Could not create payment: {exc.response.text}")
     except Exception as exc:
         logger.error("Mollie payment creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
