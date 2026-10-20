@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60  # 1 hour
 
     platform_fee_pct: float = 0.20  # 20%
-    default_price_per_kwh: float = 0.25  # EUR
+    default_price_per_kwh: float = 0.30  # EUR
 
     mollie_api_key: str = ""
     mollie_webhook_secret: str = ""

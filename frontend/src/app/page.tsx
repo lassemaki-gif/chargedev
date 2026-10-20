@@ -61,10 +61,10 @@ const jsonLd = {
 };
 
 const PACKAGES = [
-  { kwh: 20, label: "City hop", km: "~80 km", eur: "5.00" },
-  { kwh: 40, label: "Day trip", km: "~160 km", eur: "10.00" },
-  { kwh: 60, label: "Long run", km: "~250 km", eur: "15.00" },
-  { kwh: 80, label: "Full tank", km: "~320 km", eur: "20.00" },
+  { kwh: 20, label: "City hop", km: "~80 km", eur: "6.00" },
+  { kwh: 40, label: "Day trip", km: "~160 km", eur: "12.00" },
+  { kwh: 60, label: "Long run", km: "~250 km", eur: "18.00" },
+  { kwh: 80, label: "Full tank", km: "~320 km", eur: "24.00" },
 ];
 
 export default function Landing() {
@@ -113,7 +113,7 @@ export default function Landing() {
         {/* Stats strip */}
         <div className="relative mt-12 sm:mt-20 grid grid-cols-2 sm:flex sm:flex-wrap gap-5 sm:gap-10">
           {[
-            { n: "€0.25", label: "per kWh in Finland" },
+            { n: "€0.30", label: "per kWh in Finland" },
             { n: "80%", label: "goes to the host" },
             { n: "4 sizes", label: "20 · 40 · 60 · 80 kWh" },
             { n: "6-digit PIN", label: "secure session access" },
@@ -182,7 +182,7 @@ export default function Landing() {
         <div className="mb-12">
           <p className="text-volt text-sm font-semibold uppercase tracking-widest mb-3">Packages</p>
           <h2 className="text-3xl font-bold text-white">Simple, predictable pricing</h2>
-          <p className="text-ash mt-2">At €0.25/kWh — prices vary per host.</p>
+          <p className="text-ash mt-2">At €0.30/kWh — prices vary per host.</p>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {PACKAGES.map((pkg, i) => (
@@ -194,7 +194,7 @@ export default function Landing() {
             </div>
           ))}
         </div>
-        <p className="text-ash text-xs mt-4">Prices shown at €0.25/kWh. Actual price set by each host. 20% platform fee applies.</p>
+        <p className="text-ash text-xs mt-4">Prices shown at €0.30/kWh. Actual price set by each host. 20% platform fee applies.</p>
       </section>
 
       {/* Payment trust strip */}
