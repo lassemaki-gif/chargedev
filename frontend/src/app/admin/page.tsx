@@ -23,6 +23,8 @@ export default function AdminDashboard() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
+  const [vatFrom, setVatFrom] = useState("");
+  const [vatTo, setVatTo] = useState("");
 
   async function adminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -140,7 +142,12 @@ export default function AdminDashboard() {
             </div>
             {(() => {
               const listingCountry = Object.fromEntries(listings.map((l) => [l.id, l.country]));
-              const completed = bookings.filter((b) => b.status === "completed");
+              const completed = bookings.filter((b) => {
+                if (b.status !== "completed") return false;
+                if (vatFrom && b.created_at < vatFrom) return false;
+                if (vatTo && b.created_at > vatTo + "T23:59:59") return false;
+                return true;
+              });
               const byCountry: Record<string, { vat: number; count: number }> = {};
               let vatTotal = 0;
               for (const b of completed) {
@@ -154,7 +161,34 @@ export default function AdminDashboard() {
               const rows = Object.entries(byCountry).sort((a, b) => b[1].vat - a[1].vat);
               return (
                 <div className="card border-yellow-700/40">
-                  <div className="text-ash text-sm mb-3">VAT collected (ALV 25,5%) — remit to Vero</div>
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                    <div className="text-ash text-sm font-medium">VAT collected (ALV 25,5%) — remit to Vero</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="date"
+                        value={vatFrom}
+                        onChange={(e) => setVatFrom(e.target.value)}
+                        className="input text-sm py-1 px-2 w-36"
+                        placeholder="From"
+                      />
+                      <span className="text-ash text-sm">–</span>
+                      <input
+                        type="date"
+                        value={vatTo}
+                        onChange={(e) => setVatTo(e.target.value)}
+                        className="input text-sm py-1 px-2 w-36"
+                        placeholder="To"
+                      />
+                      {(vatFrom || vatTo) && (
+                        <button
+                          onClick={() => { setVatFrom(""); setVatTo(""); }}
+                          className="text-ash text-xs hover:text-white"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   {rows.length > 0 ? (
                     <table className="w-full text-sm mb-4">
                       <thead>
