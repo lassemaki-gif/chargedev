@@ -41,7 +41,7 @@ export default function NewListing() {
     }
   }
 
-  const estimatedMonthly = (form.price_per_kwh * 40 * 0.80 * 10).toFixed(0);
+  const estimatedMonthly = (form.price_per_kwh / 1.255 * 40 * 0.80 * 10).toFixed(0);
 
   return (
     <div>

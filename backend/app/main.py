@@ -561,9 +561,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 def _calc_amounts(package_kwh: int, price_per_kwh: float) -> tuple[float, float, float]:
     """Return (total_eur, fee_eur, earnings_eur) using Decimal to avoid float rounding errors."""
+    VAT_RATE = Decimal("0.255")
     total = (Decimal(str(package_kwh)) * Decimal(str(price_per_kwh))).quantize(Decimal("0.01"), ROUND_HALF_UP)
-    fee = (total * Decimal(str(settings.platform_fee_pct))).quantize(Decimal("0.01"), ROUND_HALF_UP)
-    earnings = (total - fee).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    # Extract VAT from gross price — VAT is remitted to Finnish tax authority before split
+    vat = (total * VAT_RATE / (1 + VAT_RATE)).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    net = total - vat
+    # Split net 80/20 between host and platform
+    fee = (net * Decimal(str(settings.platform_fee_pct))).quantize(Decimal("0.01"), ROUND_HALF_UP)
+    earnings = (net - fee).quantize(Decimal("0.01"), ROUND_HALF_UP)
     return float(total), float(fee), float(earnings)
 
 
