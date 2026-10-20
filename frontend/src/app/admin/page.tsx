@@ -139,17 +139,52 @@ export default function AdminDashboard() {
               ))}
             </div>
             {(() => {
+              const listingCountry = Object.fromEntries(listings.map((l) => [l.id, l.country]));
               const completed = bookings.filter((b) => b.status === "completed");
-              const vatTotal = completed.reduce((sum, b) => sum + (b.total_eur - b.seller_earnings_eur - b.platform_fee_eur), 0);
+              const byCountry: Record<string, { vat: number; count: number }> = {};
+              let vatTotal = 0;
+              for (const b of completed) {
+                const vat = b.total_eur - b.seller_earnings_eur - b.platform_fee_eur;
+                const country = listingCountry[b.listing_id] ?? "Unknown";
+                if (!byCountry[country]) byCountry[country] = { vat: 0, count: 0 };
+                byCountry[country].vat += vat;
+                byCountry[country].count += 1;
+                vatTotal += vat;
+              }
+              const rows = Object.entries(byCountry).sort((a, b) => b[1].vat - a[1].vat);
               return (
                 <div className="card border-yellow-700/40">
-                  <div className="flex items-start justify-between flex-wrap gap-4">
-                    <div>
-                      <div className="text-ash text-sm mb-1">VAT collected (ALV 25,5%) — remit to Vero</div>
-                      <div className="text-3xl font-bold text-yellow-400">€{vatTotal.toFixed(2)}</div>
-                      <div className="text-ash text-xs mt-1">From {completed.length} completed bookings · VAT = total − host earnings − platform fee</div>
-                    </div>
-                  </div>
+                  <div className="text-ash text-sm mb-3">VAT collected (ALV 25,5%) — remit to Vero</div>
+                  {rows.length > 0 ? (
+                    <table className="w-full text-sm mb-4">
+                      <thead>
+                        <tr className="text-ash text-xs border-b border-border">
+                          <th className="text-left pb-2 font-medium">Country</th>
+                          <th className="text-right pb-2 font-medium">Bookings</th>
+                          <th className="text-right pb-2 font-medium">VAT collected</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map(([country, { vat, count }]) => (
+                          <tr key={country} className="border-b border-border/40">
+                            <td className="py-2 text-white">{country}</td>
+                            <td className="py-2 text-right text-ash">{count}</td>
+                            <td className="py-2 text-right text-yellow-400 font-medium">€{vat.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td className="pt-3 font-semibold text-white">Total</td>
+                          <td className="pt-3 text-right text-ash">{completed.length}</td>
+                          <td className="pt-3 text-right text-3xl font-bold text-yellow-400">€{vatTotal.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  ) : (
+                    <div className="text-3xl font-bold text-yellow-400 mb-1">€0.00</div>
+                  )}
+                  <div className="text-ash text-xs">VAT = total paid − host earnings − platform fee · 25,5% Finnish VAT</div>
                 </div>
               );
             })()}
