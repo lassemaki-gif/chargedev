@@ -102,7 +102,7 @@ export default function Landing() {
             Your income.
           </h1>
           <p className="text-lg sm:text-xl text-ash max-w-xl mb-8 leading-relaxed">
-            Got a home charger or three-phase socket? List it on ChargedEV and earn money every time an EV driver charges up. Available worldwide.
+            Got a home charger or three-phase socket? List it on ChargedEV and earn money every time an EV driver charges up. Available Europe-wide.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="/sell" className="btn-volt text-sm sm:text-base">Start hosting →</Link>
