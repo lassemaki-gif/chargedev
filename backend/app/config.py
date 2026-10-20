@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     mollie_webhook_secret: str = ""
     mollie_client_id: str = ""
     mollie_client_secret: str = ""
+    mollie_token_key: str = ""  # Fernet key for encrypting OAuth tokens at rest
     backend_url: str = "https://chargedev-production.up.railway.app"
     frontend_url: str = "https://chargedev.io"
     resend_api_key: str = ""

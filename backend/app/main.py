@@ -576,6 +576,25 @@ def _gen_pin() -> str:
     return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
+def _encrypt_token(token: str) -> str:
+    """Encrypt a Mollie OAuth token at rest using Fernet symmetric encryption."""
+    if not settings.mollie_token_key or not token:
+        return token
+    from cryptography.fernet import Fernet
+    return Fernet(settings.mollie_token_key.encode()).encrypt(token.encode()).decode()
+
+
+def _decrypt_token(token: str) -> str:
+    """Decrypt a Fernet-encrypted Mollie OAuth token."""
+    if not settings.mollie_token_key or not token:
+        return token
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(settings.mollie_token_key.encode()).decrypt(token.encode()).decode()
+    except Exception:
+        return token  # Return as-is if not encrypted (legacy plain tokens)
+
+
 async def _mollie(method: str, path: str, **kwargs) -> dict:
     """Authenticated request to the Mollie REST API."""
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1136,9 +1155,21 @@ async def verify_joining_fee(
 # ── Mollie Connect (seller payout accounts) ───────────────────────────────────
 
 @app.get("/api/seller/mollie/connect")
-async def mollie_connect_redirect(current_user: User = Depends(require_role("seller", "admin"))):
+async def mollie_connect_redirect(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
     """Return the Mollie OAuth authorization URL for the frontend to redirect to."""
-    state = create_access_token(current_user.id, current_user.role)
+    # Generate single-use nonce to prevent OAuth callback injection (MC-1/MC-2)
+    nonce = secrets.token_hex(16)
+    current_user.mollie_oauth_nonce = nonce
+    await session.commit()
+
+    state = jose_jwt.encode(
+        {"sub": str(current_user.id), "role": current_user.role, "nonce": nonce,
+         "exp": datetime.utcnow().timestamp() + 600},  # 10-minute state expiry
+        settings.secret_key, algorithm="HS256",
+    )
     params = urlencode({
         "client_id": settings.mollie_client_id,
         "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
@@ -1151,16 +1182,32 @@ async def mollie_connect_redirect(current_user: User = Depends(require_role("sel
 
 @app.get("/api/seller/mollie/callback")
 async def mollie_connect_callback(
-    code: str,
-    state: str,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Handle Mollie OAuth callback — exchange code for tokens and store org ID."""
+    if error:
+        logger.info("Mollie OAuth denied by user: %s", error)
+        return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=denied")
+    if not code or not state:
+        raise HTTPException(400, "Missing code or state")
+
     try:
         payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
         user_id = int(payload["sub"])
+        state_nonce = payload.get("nonce")
     except (JWTError, KeyError, ValueError):
         raise HTTPException(400, "Invalid state parameter")
+
+    # Verify and consume the single-use nonce (MC-1/MC-2)
+    user = await session.get(User, user_id)
+    if not user or not user.mollie_oauth_nonce or not secrets.compare_digest(user.mollie_oauth_nonce, state_nonce or ""):
+        logger.warning("Mollie OAuth: invalid or reused nonce for user %d", user_id)
+        raise HTTPException(400, "Invalid or expired OAuth state")
+    user.mollie_oauth_nonce = None  # Consume nonce — single use only
+    await session.commit()
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         token_resp = await client.post(
@@ -1185,12 +1232,9 @@ async def mollie_connect_callback(
         org_resp.raise_for_status()
         org = org_resp.json()
 
-    user = await session.get(User, user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
     user.stripe_account_id = org["id"]          # Mollie org ID
-    user.mollie_access_token = access_token
-    user.mollie_refresh_token = refresh_token
+    user.mollie_access_token = _encrypt_token(access_token)   # MC-3: encrypted at rest
+    user.mollie_refresh_token = _encrypt_token(refresh_token)
     await session.commit()
     logger.info("Mollie Connect completed for user %d, org %s", user_id, org["id"])
     return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=connected")
@@ -1274,17 +1318,18 @@ async def create_checkout(
         }]
 
     # Create Mollie payment
+    routing_succeeded = False
     try:
         payment = await _mollie("POST", "/payments", json=payment_data)
+        routing_succeeded = "routing" in payment_data
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 422 and "routing" in exc.response.text:
             # Seller's Mollie account not yet verified — fall back to no routing
             logger.warning("Mollie routing rejected for booking (seller not yet verified) — retrying without routing")
             payment_data.pop("routing", None)
-            booking.paid_out = False
-            booking.paid_out_at = None
             try:
                 payment = await _mollie("POST", "/payments", json=payment_data)
+                routing_succeeded = False
             except Exception as exc2:
                 logger.error("Mollie payment creation failed (no routing): %s", exc2)
                 raise HTTPException(502, "Could not create payment. Please try again.")
@@ -1296,8 +1341,8 @@ async def create_checkout(
         raise HTTPException(502, "Could not create payment. Please try again.")
 
     booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
-    if host and host.stripe_account_id:
-        booking.paid_out = True  # Mollie routing already transfers earnings at checkout
+    if routing_succeeded:  # MC-4: only mark paid_out when routing actually transferred earnings
+        booking.paid_out = True
         booking.paid_out_at = datetime.utcnow()
     await session.commit()
 
@@ -1382,12 +1427,24 @@ async def shelly_disconnect(
 @app.websocket("/ocpp/{charge_point_id}")
 async def ocpp_websocket(websocket: WebSocket, charge_point_id: str):
     """WebSocket endpoint for OCPP 1.6 charge points to connect to."""
+    from .db import async_session as _as
+    # Verify charge point is registered before accepting the connection
+    async with _as() as sess:
+        db_cp = (await sess.execute(
+            select(OcppChargePoint).where(OcppChargePoint.charge_point_id == charge_point_id)
+        )).scalar_one_or_none()
+    if not db_cp:
+        logger.warning("OCPP: rejected unknown charge point %s", charge_point_id)
+        await websocket.close(code=4001, reason="Unknown charge point")
+        return
+    if charge_point_id in _ocpp_connections:
+        logger.warning("OCPP: charge point %s reconnecting — displacing existing connection", charge_point_id)
+
     await websocket.accept(subprotocol="ocpp1.6")
     cp = ChargedEVChargePoint(charge_point_id, websocket)
     _ocpp_connections[charge_point_id] = cp
     logger.info("OCPP charge point connected: %s", charge_point_id)
     # Update DB status to online
-    from .db import async_session as _as
     async with _as() as sess:
         db_cp = (await sess.execute(
             select(OcppChargePoint).where(OcppChargePoint.charge_point_id == charge_point_id)
