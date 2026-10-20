@@ -138,6 +138,21 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+            {(() => {
+              const completed = bookings.filter((b) => b.status === "completed");
+              const vatTotal = completed.reduce((sum, b) => sum + (b.total_eur - b.seller_earnings_eur - b.platform_fee_eur), 0);
+              return (
+                <div className="card border-yellow-700/40">
+                  <div className="flex items-start justify-between flex-wrap gap-4">
+                    <div>
+                      <div className="text-ash text-sm mb-1">VAT collected (ALV 25,5%) — remit to Vero</div>
+                      <div className="text-3xl font-bold text-yellow-400">€{vatTotal.toFixed(2)}</div>
+                      <div className="text-ash text-xs mt-1">From {completed.length} completed bookings · VAT = total − host earnings − platform fee</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="card">
                 <div className="text-ash text-sm mb-1">Total kWh delivered</div>
