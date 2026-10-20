@@ -1143,7 +1143,7 @@ async def mollie_connect_redirect(current_user: User = Depends(require_role("sel
         "client_id": settings.mollie_client_id,
         "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
         "response_type": "code",
-        "scope": "payments.write organizations.read",
+        "scope": "payments.write organizations.read profiles.read onboarding.read",
         "state": state,
     })
     return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
