@@ -149,11 +149,11 @@ async def _shelly_poll_loop() -> None:
                                 ss = await sess.get(ShellySession, s.id)
                                 if ss and ss.status == "active":
                                     ss.status = "completed"
-                                    ss.stopped_at = datetime.now(timezone.utc)
+                                    ss.stopped_at = datetime.utcnow()
                                     booking = await sess.get(Booking, ss.booking_id)
                                     if booking and booking.status == BookingStatus.confirmed:
                                         booking.status = BookingStatus.completed
-                                        booking.completed_at = datetime.now(timezone.utc)
+                                        booking.completed_at = datetime.utcnow()
                                     await sess.commit()
                                 logger.info("Shelly session %d completed — relay off", s.id)
                     except Exception as exc:
@@ -254,11 +254,11 @@ class ChargedEVChargePoint(OcppCp):
                 consumed = (meter_stop - ocpp_sess.energy_start_wh) / 1000.0
                 ocpp_sess.energy_consumed_wh = float(meter_stop - ocpp_sess.energy_start_wh)
                 ocpp_sess.status = "completed"
-                ocpp_sess.stopped_at = datetime.now(timezone.utc)
+                ocpp_sess.stopped_at = datetime.utcnow()
                 booking = await sess.get(Booking, ocpp_sess.booking_id)
                 if booking and booking.status == BookingStatus.confirmed:
                     booking.status = BookingStatus.completed
-                    booking.completed_at = datetime.now(timezone.utc)
+                    booking.completed_at = datetime.utcnow()
                 await sess.commit()
                 logger.info("OCPP StopTransaction txn=%d consumed=%.3f kWh", transaction_id, consumed)
         return call_result.StopTransaction()
@@ -892,7 +892,7 @@ async def complete_booking(
     if b.status not in (BookingStatus.confirmed, BookingStatus.active):
         raise HTTPException(400, f"Booking must be confirmed or active to complete (current: {b.status})")
     b.status = BookingStatus.completed
-    b.completed_at = datetime.now(timezone.utc)
+    b.completed_at = datetime.utcnow()
     await session.commit()
     return {"status": "completed"}
 
@@ -1011,7 +1011,7 @@ async def admin_retry_transfer(
     if b.paid_out:
         return {"detail": "Already marked as paid out", "booking_id": b.id}
     b.paid_out = True
-    b.paid_out_at = datetime.now(timezone.utc)
+    b.paid_out_at = datetime.utcnow()
     await session.commit()
     return {"booking_id": b.id, "amount_eur": b.seller_earnings_eur, "paid_out": True}
 
