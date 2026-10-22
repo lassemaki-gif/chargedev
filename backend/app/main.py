@@ -1245,6 +1245,32 @@ async def mollie_connect_status(current_user: User = Depends(require_role("selle
     return {"connected": bool(current_user.stripe_account_id), "organization_id": current_user.stripe_account_id}
 
 
+@app.get("/api/seller/mollie/onboarding")
+async def mollie_onboarding_status(current_user: User = Depends(require_role("seller", "admin"))):
+    """Check the connected seller's Mollie onboarding status using their access token."""
+    if not current_user.mollie_access_token:
+        return {"status": "not_connected", "can_receive_payments": False}
+    try:
+        access_token = _decrypt_token(current_user.mollie_access_token)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://api.mollie.com/v2/onboarding/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        status = data.get("status", "unknown")
+        can_receive = status == "completed"
+        return {
+            "status": status,               # needs-data | in-progress | completed
+            "can_receive_payments": can_receive,
+            "needs_data": data.get("canReceivePayments") is False,
+        }
+    except Exception as exc:
+        logger.error("Mollie onboarding check failed: %s", exc)
+        return {"status": "unknown", "can_receive_payments": False}
+
+
 @app.delete("/api/seller/mollie/disconnect")
 async def mollie_disconnect(
     current_user: User = Depends(require_role("seller", "admin")),

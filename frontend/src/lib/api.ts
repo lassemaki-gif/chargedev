@@ -64,6 +64,7 @@ export const api = {
   sellerEarnings: () => req<SellerEarnings>("GET", "/api/seller/earnings"),
   stripeOnboard: () => req<{ url: string }>("POST", "/api/seller/stripe/onboard"),
   stripeStatus: () => req<{ onboarded: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("GET", "/api/seller/stripe/status"),
+  mollieOnboarding: () => req<{ status: string; can_receive_payments: boolean; needs_data?: boolean }>("GET", "/api/seller/mollie/onboarding"),
   payJoiningFee: () => req<{ checkout_url: string; payment_id: string } | { status: string }>("POST", "/api/seller/joining-fee"),
   verifyJoiningFee: (paymentId: string) => req<{ paid: boolean }>("GET", `/api/seller/joining-fee/verify?payment_id=${paymentId}`),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),

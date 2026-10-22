@@ -29,6 +29,7 @@ function SellerDashboardInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
+  const [mollieOnboarding, setMollieOnboarding] = useState<{ status: string; can_receive_payments: boolean } | null>(null);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [shellyOpen, setShellyOpen] = useState<number | null>(null);
@@ -62,6 +63,9 @@ function SellerDashboardInner() {
       .then(([l, b, e]) => {
         setListings(l);
         setBookings(b);
+        if (e.mollie_connected) {
+          api.mollieOnboarding().then(setMollieOnboarding).catch(() => {});
+        }
         setEarnings(e);
       })
       .catch((e) => {
@@ -257,7 +261,22 @@ function SellerDashboardInner() {
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <span className="text-green-400 text-sm font-medium">Mollie connected ✓</span>
-                <p className="text-ash text-xs mt-0.5">Your 80% earnings are transferred automatically on each booking.</p>
+                {mollieOnboarding && (
+                  <div className="mt-1">
+                    {mollieOnboarding.status === "completed" && (
+                      <p className="text-green-400 text-xs">Onboarding complete — earnings routed automatically on each booking.</p>
+                    )}
+                    {mollieOnboarding.status === "needs-data" && (
+                      <p className="text-yellow-400 text-xs">⚠ Your Mollie account needs more information. <a href="https://my.mollie.com" target="_blank" rel="noreferrer" className="underline">Complete your Mollie profile →</a></p>
+                    )}
+                    {mollieOnboarding.status === "in-progress" && (
+                      <p className="text-ash text-xs">Mollie is reviewing your account — earnings will be routed once approved.</p>
+                    )}
+                  </div>
+                )}
+                {!mollieOnboarding && (
+                  <p className="text-ash text-xs mt-0.5">Your 80% earnings are transferred automatically on each booking.</p>
+                )}
               </div>
               <a
                 href="/api/proxy/api/seller/mollie/disconnect"
