@@ -1219,7 +1219,7 @@ async def admin_confirm_booking(
 
 # ── Admin: platform Mollie self-OAuth (one-time setup) ────────────────────────
 
-PLATFORM_MOLLIE_SCOPE = "organizations.read clients.read clients.write"
+PLATFORM_MOLLIE_SCOPE = "organizations.read onboarding.write"
 
 
 @app.get("/api/admin/mollie/platform-connect")
