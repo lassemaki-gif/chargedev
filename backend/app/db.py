@@ -91,6 +91,13 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)",
                     "UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL",
+                    """CREATE TABLE IF NOT EXISTS platform_mollie (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        access_token VARCHAR(2048),
+                        refresh_token VARCHAR(2048),
+                        nonce VARCHAR(64),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )""",
                 ]
                 for sql in migrations:
                     try:

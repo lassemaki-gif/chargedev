@@ -162,6 +162,22 @@ class OcppSession(Base):
     stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
 
+class PlatformMollie(Base):
+    """Singleton row storing the platform's own Mollie OAuth token.
+
+    Used for calls that require OAuth (Client Links API) rather than the
+    classic platform API key. The row is created/updated via the admin
+    self-OAuth flow at /api/admin/mollie/platform-connect.
+    """
+    __tablename__ = "platform_mollie"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    access_token: Mapped[Optional[str]] = mapped_column(String(2048))
+    refresh_token: Mapped[Optional[str]] = mapped_column(String(2048))
+    nonce: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ShellySession(Base):
     """Tracks an active Shelly-controlled charging session."""
     __tablename__ = "shelly_sessions"

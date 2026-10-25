@@ -32,7 +32,7 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, Review,
+    Booking, BookingStatus, Listing, PACKAGES_KWH, PlatformMollie, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from .schemas import (
@@ -660,6 +660,52 @@ async def _mollie_user_request(
         return resp
 
 
+async def _refresh_platform_mollie_token(row: PlatformMollie, session: AsyncSession) -> str:
+    """Refresh the platform's own OAuth access token via its refresh token."""
+    if not row.refresh_token:
+        raise HTTPException(503, "Platform Mollie OAuth not configured")
+    refresh_token = _decrypt_token(row.refresh_token)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://api.mollie.com/oauth2/tokens",
+            auth=(settings.mollie_client_id, settings.mollie_client_secret),
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        )
+    if resp.status_code >= 400:
+        logger.warning("Platform Mollie refresh failed: %s %s", resp.status_code, resp.text)
+        raise HTTPException(503, "Platform Mollie refresh failed")
+    tokens = resp.json()
+    access_token = tokens["access_token"]
+    new_refresh = tokens.get("refresh_token", refresh_token)
+    row.access_token = _encrypt_token(access_token)
+    row.refresh_token = _encrypt_token(new_refresh)
+    await session.commit()
+    logger.info("Platform Mollie token refreshed")
+    return access_token
+
+
+async def _platform_mollie_request(
+    session: AsyncSession, method: str, path: str, **kwargs,
+) -> httpx.Response:
+    """Call Mollie using the platform's own OAuth token; refresh + retry on auth error."""
+    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
+    if not row or not row.access_token:
+        raise HTTPException(503, "Platform Mollie OAuth not configured. Run /api/admin/mollie/platform-connect.")
+    access_token = _decrypt_token(row.access_token)
+    url = f"https://api.mollie.com/v2{path}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.request(
+            method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
+        )
+        if _is_mollie_auth_error(resp):
+            access_token = await _refresh_platform_mollie_token(row, session)
+            resp = await client.request(
+                method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
+            )
+        resp.raise_for_status()
+        return resp
+
+
 def _is_mollie_auth_error(resp: httpx.Response) -> bool:
     """True if a Mollie response signals an invalid/expired access token."""
     if resp.status_code == 401:
@@ -1171,6 +1217,93 @@ async def admin_confirm_booking(
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
 
 
+# ── Admin: platform Mollie self-OAuth (one-time setup) ────────────────────────
+
+PLATFORM_MOLLIE_SCOPE = "organizations.read clients.read clients.write"
+
+
+@app.get("/api/admin/mollie/platform-connect")
+async def platform_mollie_connect(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Start the platform self-OAuth flow (one-time setup for Client Links API)."""
+    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
+    if row is None:
+        row = PlatformMollie(id=1)
+        session.add(row)
+    nonce = secrets.token_hex(16)
+    row.nonce = nonce
+    await session.commit()
+
+    state = jose_jwt.encode(
+        {"platform": True, "nonce": nonce, "exp": datetime.utcnow().timestamp() + 600},
+        settings.secret_key, algorithm="HS256",
+    )
+    params = urlencode({
+        "client_id": settings.mollie_client_id,
+        "redirect_uri": f"{settings.backend_url}/api/admin/mollie/platform-callback",
+        "response_type": "code",
+        "scope": PLATFORM_MOLLIE_SCOPE,
+        "state": state,
+    })
+    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
+
+
+@app.get("/api/admin/mollie/platform-callback")
+async def platform_mollie_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Complete the platform self-OAuth flow — exchange code for a token with clients.write."""
+    if error:
+        return RedirectResponse(f"{settings.frontend_url}/admin?platform_mollie=denied")
+    if not code or not state:
+        raise HTTPException(400, "Missing code or state")
+    try:
+        payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
+        if not payload.get("platform"):
+            raise HTTPException(400, "Invalid state")
+        state_nonce = payload.get("nonce")
+    except (JWTError, KeyError):
+        raise HTTPException(400, "Invalid state parameter")
+
+    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
+    if not row or not row.nonce or not secrets.compare_digest(row.nonce, state_nonce or ""):
+        raise HTTPException(400, "Invalid or expired OAuth state")
+    row.nonce = None
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        token_resp = await client.post(
+            "https://api.mollie.com/oauth2/tokens",
+            auth=(settings.mollie_client_id, settings.mollie_client_secret),
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": f"{settings.backend_url}/api/admin/mollie/platform-callback",
+            },
+        )
+        token_resp.raise_for_status()
+        tokens = token_resp.json()
+
+    row.access_token = _encrypt_token(tokens["access_token"])
+    row.refresh_token = _encrypt_token(tokens.get("refresh_token", ""))
+    await session.commit()
+    logger.info("Platform Mollie OAuth connected")
+    return RedirectResponse(f"{settings.frontend_url}/admin?platform_mollie=connected")
+
+
+@app.get("/api/admin/mollie/platform-status")
+async def platform_mollie_status(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
+    return {"connected": bool(row and row.access_token)}
+
+
 # ── Host joining fee ─────────────────────────────────────────────────────────
 
 @app.post("/api/seller/joining-fee")
@@ -1276,7 +1409,8 @@ async def mollie_connect_redirect(
         "address": {"country": "FI"},
     }
     try:
-        link = await _mollie("POST", "/client-links", json=client_link_body)
+        resp = await _platform_mollie_request(session, "POST", "/client-links", json=client_link_body)
+        link = resp.json()
         base_url = link["_links"]["clientLink"]["href"]
         return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
     except Exception as exc:
