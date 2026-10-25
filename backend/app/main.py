@@ -635,7 +635,11 @@ async def _refresh_mollie_token(user: User, session: AsyncSession) -> str:
 async def _mollie_user_request(
     user: User, session: AsyncSession, method: str, path: str, **kwargs,
 ) -> httpx.Response:
-    """Call Mollie with the seller's access token; refresh + retry once on 401."""
+    """Call Mollie with the seller's access token; refresh + retry on an invalid-token response.
+
+    Mollie returns 400 "Invalid Authorization header" (not 401) for expired or
+    invalid access tokens, so we retry on both.
+    """
     if not user.mollie_access_token:
         raise HTTPException(401, "Mollie not connected")
     access_token = _decrypt_token(user.mollie_access_token)
@@ -644,13 +648,25 @@ async def _mollie_user_request(
         resp = await client.request(
             method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
         )
-        if resp.status_code == 401:
+        if _is_mollie_auth_error(resp):
             access_token = await _refresh_mollie_token(user, session)
             resp = await client.request(
                 method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
             )
         resp.raise_for_status()
         return resp
+
+
+def _is_mollie_auth_error(resp: httpx.Response) -> bool:
+    """True if a Mollie response signals an invalid/expired access token."""
+    if resp.status_code == 401:
+        return True
+    if resp.status_code == 400:
+        try:
+            return "authorization" in (resp.json().get("detail", "")).lower()
+        except Exception:
+            return False
+    return False
 
 
 def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
