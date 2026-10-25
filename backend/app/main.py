@@ -608,6 +608,51 @@ async def _mollie(method: str, path: str, **kwargs) -> dict:
         return resp.json()
 
 
+async def _refresh_mollie_token(user: User, session: AsyncSession) -> str:
+    """Exchange the user's refresh token for a new access token; persist both."""
+    if not user.mollie_refresh_token:
+        raise HTTPException(401, "Mollie refresh token missing — reconnect required")
+    refresh_token = _decrypt_token(user.mollie_refresh_token)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            "https://api.mollie.com/oauth2/tokens",
+            auth=(settings.mollie_client_id, settings.mollie_client_secret),
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+        )
+    if resp.status_code >= 400:
+        logger.warning("Mollie refresh failed for user %d: %s %s", user.id, resp.status_code, resp.text)
+        raise HTTPException(401, "Mollie refresh failed — reconnect required")
+    tokens = resp.json()
+    access_token = tokens["access_token"]
+    new_refresh = tokens.get("refresh_token", refresh_token)
+    user.mollie_access_token = _encrypt_token(access_token)
+    user.mollie_refresh_token = _encrypt_token(new_refresh)
+    await session.commit()
+    logger.info("Mollie token refreshed for user %d", user.id)
+    return access_token
+
+
+async def _mollie_user_request(
+    user: User, session: AsyncSession, method: str, path: str, **kwargs,
+) -> httpx.Response:
+    """Call Mollie with the seller's access token; refresh + retry once on 401."""
+    if not user.mollie_access_token:
+        raise HTTPException(401, "Mollie not connected")
+    access_token = _decrypt_token(user.mollie_access_token)
+    url = f"https://api.mollie.com/v2{path}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.request(
+            method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
+        )
+        if resp.status_code == 401:
+            access_token = await _refresh_mollie_token(user, session)
+            resp = await client.request(
+                method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
+            )
+        resp.raise_for_status()
+        return resp
+
+
 def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
     return BookingOut(
         id=b.id,
@@ -1246,26 +1291,24 @@ async def mollie_connect_status(current_user: User = Depends(require_role("selle
 
 
 @app.get("/api/seller/mollie/onboarding")
-async def mollie_onboarding_status(current_user: User = Depends(require_role("seller", "admin"))):
+async def mollie_onboarding_status(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
     """Check the connected seller's Mollie onboarding status using their access token."""
     if not current_user.mollie_access_token:
         return {"status": "not_connected", "can_receive_payments": False}
     try:
-        access_token = _decrypt_token(current_user.mollie_access_token)
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                "https://api.mollie.com/v2/onboarding/me",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = await _mollie_user_request(current_user, session, "GET", "/onboarding/me")
+        data = resp.json()
         status = data.get("status", "unknown")
-        can_receive = status == "completed"
         return {
             "status": status,               # needs-data | in-progress | completed
-            "can_receive_payments": can_receive,
+            "can_receive_payments": status == "completed",
             "needs_data": data.get("canReceivePayments") is False,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Mollie onboarding check failed: %s", exc)
         return {"status": "unknown", "can_receive_payments": False}
