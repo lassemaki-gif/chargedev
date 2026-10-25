@@ -1240,9 +1240,11 @@ async def platform_mollie_connect(
         {"platform": True, "nonce": nonce, "exp": datetime.utcnow().timestamp() + 600},
         settings.secret_key, algorithm="HS256",
     )
+    # Mollie allows only one redirect URI per app; reuse the registered seller
+    # callback, which dispatches on payload["platform"] in the state JWT.
     params = urlencode({
         "client_id": settings.mollie_client_id,
-        "redirect_uri": f"{settings.backend_url}/api/admin/mollie/platform-callback",
+        "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
         "response_type": "code",
         "scope": PLATFORM_MOLLIE_SCOPE,
         "state": state,
@@ -1250,26 +1252,11 @@ async def platform_mollie_connect(
     return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
 
 
-@app.get("/api/admin/mollie/platform-callback")
-async def platform_mollie_callback(
-    code: Optional[str] = None,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
-    session: AsyncSession = Depends(get_session),
-):
-    """Complete the platform self-OAuth flow — exchange code for a token with clients.write."""
-    if error:
-        return RedirectResponse(f"{settings.frontend_url}/admin?platform_mollie=denied")
-    if not code or not state:
-        raise HTTPException(400, "Missing code or state")
-    try:
-        payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
-        if not payload.get("platform"):
-            raise HTTPException(400, "Invalid state")
-        state_nonce = payload.get("nonce")
-    except (JWTError, KeyError):
-        raise HTTPException(400, "Invalid state parameter")
-
+async def _handle_platform_oauth_callback(
+    code: str, payload: dict, session: AsyncSession,
+) -> RedirectResponse:
+    """Platform self-OAuth leg of the shared callback — stores clients.write token."""
+    state_nonce = payload.get("nonce")
     row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
     if not row or not row.nonce or not secrets.compare_digest(row.nonce, state_nonce or ""):
         raise HTTPException(400, "Invalid or expired OAuth state")
@@ -1282,7 +1269,7 @@ async def platform_mollie_callback(
             data={
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": f"{settings.backend_url}/api/admin/mollie/platform-callback",
+                "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
             },
         )
         token_resp.raise_for_status()
@@ -1292,7 +1279,7 @@ async def platform_mollie_callback(
     row.refresh_token = _encrypt_token(tokens.get("refresh_token", ""))
     await session.commit()
     logger.info("Platform Mollie OAuth connected")
-    return RedirectResponse(f"{settings.frontend_url}/admin?platform_mollie=connected")
+    return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?platform_mollie=connected")
 
 
 @app.get("/api/admin/mollie/platform-status")
@@ -1425,7 +1412,11 @@ async def mollie_connect_callback(
     error: Optional[str] = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """Handle Mollie OAuth callback — exchange code for tokens and store org ID."""
+    """Handle Mollie OAuth callback for both seller connect and platform self-OAuth.
+
+    Mollie allows only one registered redirect URI per app, so both flows share
+    this endpoint and dispatch based on `payload["platform"]` in the state JWT.
+    """
     if error:
         logger.info("Mollie OAuth denied by user: %s", error)
         return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=denied")
@@ -1434,9 +1425,17 @@ async def mollie_connect_callback(
 
     try:
         payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
+    except (JWTError, KeyError, ValueError):
+        raise HTTPException(400, "Invalid state parameter")
+
+    # Dispatch: platform self-OAuth vs seller connect
+    if payload.get("platform"):
+        return await _handle_platform_oauth_callback(code, payload, session)
+
+    try:
         user_id = int(payload["sub"])
         state_nonce = payload.get("nonce")
-    except (JWTError, KeyError, ValueError):
+    except (KeyError, ValueError):
         raise HTTPException(400, "Invalid state parameter")
 
     # Verify and consume the single-use nonce (MC-1/MC-2)
