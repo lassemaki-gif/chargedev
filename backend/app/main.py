@@ -595,13 +595,16 @@ def _decrypt_token(token: str) -> str:
         return token  # Return as-is if not encrypted (legacy plain tokens)
 
 
-async def _mollie(method: str, path: str, **kwargs) -> dict:
+async def _mollie(method: str, path: str, idempotency_key: Optional[str] = None, **kwargs) -> dict:
     """Authenticated request to the Mollie REST API."""
+    headers = {"Authorization": f"Bearer {settings.mollie_api_key}"}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.request(
             method,
             f"https://api.mollie.com/v2{path}",
-            headers={"Authorization": f"Bearer {settings.mollie_api_key}"},
+            headers=headers,
             **kwargs,
         )
         resp.raise_for_status()
@@ -1177,13 +1180,15 @@ async def create_joining_fee_payment(
     if current_user.joining_fee_paid is not False:
         return {"status": "already_paid"}
     try:
-        payment = await _mollie("POST", "/payments", json={
-            "amount": {"currency": "EUR", "value": "1.00"},
-            "description": "ChargedEV host joining fee",
-            "redirectUrl": f"{settings.frontend_url}/sell/dashboard",
-            "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
-            "metadata": {"type": "joining_fee", "user_id": str(current_user.id)},
-        })
+        payment = await _mollie("POST", "/payments",
+            idempotency_key=f"joining-fee-{current_user.id}",
+            json={
+                "amount": {"currency": "EUR", "value": "1.00"},
+                "description": "ChargedEV host joining fee",
+                "redirectUrl": f"{settings.frontend_url}/sell/dashboard",
+                "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
+                "metadata": {"type": "joining_fee", "user_id": str(current_user.id)},
+            })
     except Exception as exc:
         logger.error("Mollie joining fee payment creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
@@ -1215,12 +1220,32 @@ async def verify_joining_fee(
 
 # ── Mollie Connect (seller payout accounts) ───────────────────────────────────
 
+MOLLIE_OAUTH_SCOPE = (
+    "payments.write organizations.read profiles.read "
+    "onboarding.read settlements.read balances.read"
+)
+
+
+def _split_name(full_name: str) -> tuple[str, str]:
+    parts = (full_name or "").strip().split(None, 1)
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    return (parts[0] if parts else "User"), (parts[0] if parts else "User")
+
+
 @app.get("/api/seller/mollie/connect")
 async def mollie_connect_redirect(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Return the Mollie OAuth authorization URL for the frontend to redirect to."""
+    """Return a Mollie onboarding URL for the seller to open.
+
+    Mollie recommends co-branded onboarding via the Client Links API for new
+    merchants (prefills signup data, reduces drop-off). We create a client link
+    with the seller's details prefilled, then append our OAuth parameters so a
+    single redirect handles both signup and consent. Falls back to the raw
+    authorize URL if client-link creation fails.
+    """
     # Generate single-use nonce to prevent OAuth callback injection (MC-1/MC-2)
     nonce = secrets.token_hex(16)
     current_user.mollie_oauth_nonce = nonce
@@ -1228,17 +1253,35 @@ async def mollie_connect_redirect(
 
     state = jose_jwt.encode(
         {"sub": str(current_user.id), "role": current_user.role, "nonce": nonce,
-         "exp": datetime.utcnow().timestamp() + 600},  # 10-minute state expiry
+         "exp": datetime.utcnow().timestamp() + 600},
         settings.secret_key, algorithm="HS256",
     )
-    params = urlencode({
+    oauth_params = {
         "client_id": settings.mollie_client_id,
         "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
         "response_type": "code",
-        "scope": "payments.write organizations.read profiles.read onboarding.read",
+        "scope": MOLLIE_OAUTH_SCOPE,
         "state": state,
-    })
-    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
+    }
+
+    given, family = _split_name(current_user.full_name)
+    client_link_body = {
+        "owner": {
+            "email": current_user.email,
+            "givenName": given,
+            "familyName": family,
+            "locale": "fi_FI",
+        },
+        "name": current_user.full_name or current_user.email.split("@")[0],
+        "address": {"country": "FI"},
+    }
+    try:
+        link = await _mollie("POST", "/client-links", json=client_link_body)
+        base_url = link["_links"]["clientLink"]["href"]
+        return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
+    except Exception as exc:
+        logger.warning("Client Link creation failed, falling back to raw OAuth: %s", exc)
+        return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{urlencode(oauth_params)}"}
 
 
 @app.get("/api/seller/mollie/callback")
@@ -1330,6 +1373,75 @@ async def mollie_onboarding_status(
         return {"status": "unknown", "can_receive_payments": False}
 
 
+@app.get("/api/seller/mollie/balance")
+async def mollie_balance(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return the seller's primary Mollie balance (available + pending)."""
+    if not current_user.mollie_access_token:
+        return {"status": "not_connected"}
+    try:
+        resp = await _mollie_user_request(current_user, session, "GET", "/balances/primary")
+        data = resp.json()
+        return {
+            "status": "ok",
+            "currency": data.get("currency"),
+            "available": data.get("availableAmount", {}).get("value"),
+            "pending": data.get("pendingAmount", {}).get("value"),
+            "balance_status": data.get("status"),
+        }
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            return {"status": "scope_missing", "detail": "Reconnect Mollie to enable balance view"}
+        logger.error("Mollie balance fetch failed: %s", exc.response.text)
+        return {"status": "error"}
+    except Exception as exc:
+        logger.error("Mollie balance fetch failed: %s", exc)
+        return {"status": "error"}
+
+
+@app.get("/api/seller/mollie/settlements")
+async def mollie_settlements(
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """List the seller's recent Mollie settlements."""
+    if not current_user.mollie_access_token:
+        return {"status": "not_connected", "settlements": []}
+    try:
+        resp = await _mollie_user_request(current_user, session, "GET", "/settlements?limit=10")
+        data = resp.json()
+        items = data.get("_embedded", {}).get("settlements", [])
+        return {
+            "status": "ok",
+            "settlements": [
+                {
+                    "id": s.get("id"),
+                    "reference": s.get("reference"),
+                    "created_at": s.get("createdAt"),
+                    "settled_at": s.get("settledAt"),
+                    "status": s.get("status"),
+                    "amount": s.get("amount", {}).get("value"),
+                    "currency": s.get("amount", {}).get("currency"),
+                }
+                for s in items
+            ],
+        }
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 403:
+            return {"status": "scope_missing", "settlements": []}
+        logger.error("Mollie settlements fetch failed: %s", exc.response.text)
+        return {"status": "error", "settlements": []}
+    except Exception as exc:
+        logger.error("Mollie settlements fetch failed: %s", exc)
+        return {"status": "error", "settlements": []}
+
+
 @app.delete("/api/seller/mollie/disconnect")
 async def mollie_disconnect(
     current_user: User = Depends(require_role("seller", "admin")),
@@ -1403,9 +1515,10 @@ async def create_checkout(
         }]
 
     # Create Mollie payment
+    idempotency_key = f"booking-{booking.id}"
     routing_succeeded = False
     try:
-        payment = await _mollie("POST", "/payments", json=payment_data)
+        payment = await _mollie("POST", "/payments", idempotency_key=idempotency_key, json=payment_data)
         routing_succeeded = "routing" in payment_data
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 422 and "routing" in exc.response.text:
@@ -1413,7 +1526,7 @@ async def create_checkout(
             logger.warning("Mollie routing rejected for booking (seller not yet verified) — retrying without routing")
             payment_data.pop("routing", None)
             try:
-                payment = await _mollie("POST", "/payments", json=payment_data)
+                payment = await _mollie("POST", "/payments", idempotency_key=idempotency_key, json=payment_data)
                 routing_succeeded = False
             except Exception as exc2:
                 logger.error("Mollie payment creation failed (no routing): %s", exc2)

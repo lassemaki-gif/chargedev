@@ -30,6 +30,8 @@ function SellerDashboardInner() {
   const [error, setError] = useState<string | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
   const [mollieOnboarding, setMollieOnboarding] = useState<{ status: string; can_receive_payments: boolean } | null>(null);
+  const [mollieBalance, setMollieBalance] = useState<{ status: string; currency?: string; available?: string; pending?: string } | null>(null);
+  const [mollieSettlements, setMollieSettlements] = useState<Array<{ id: string; reference: string | null; created_at: string; settled_at: string | null; status: string; amount: string; currency: string }>>([]);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [shellyOpen, setShellyOpen] = useState<number | null>(null);
@@ -65,6 +67,8 @@ function SellerDashboardInner() {
         setBookings(b);
         if (e.mollie_connected) {
           api.mollieOnboarding().then(setMollieOnboarding).catch(() => {});
+          api.mollieBalance().then(setMollieBalance).catch(() => {});
+          api.mollieSettlements().then((r) => setMollieSettlements(r.settlements)).catch(() => {});
         }
         setEarnings(e);
       })
@@ -313,6 +317,58 @@ function SellerDashboardInner() {
             </>
           )}
         </div>
+
+        {/* Mollie balance + settlements */}
+        {earnings?.mollie_connected && mollieBalance?.status === "ok" && (
+          <div className="card mb-10">
+            <h2 className="font-semibold text-white mb-3">Your Mollie balance</h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <div className="text-ash text-xs">Available</div>
+                <div className="text-white font-medium">
+                  {mollieBalance.available} {mollieBalance.currency}
+                </div>
+              </div>
+              <div>
+                <div className="text-ash text-xs">Pending</div>
+                <div className="text-white font-medium">
+                  {mollieBalance.pending} {mollieBalance.currency}
+                </div>
+              </div>
+            </div>
+            {mollieSettlements.length > 0 && (
+              <div className="mt-5">
+                <div className="text-ash text-xs mb-2">Recent payouts</div>
+                <ul className="divide-y divide-white/10">
+                  {mollieSettlements.map((s) => (
+                    <li key={s.id} className="py-2 flex items-center justify-between text-xs">
+                      <div>
+                        <div className="text-white">
+                          {s.amount} {s.currency}
+                        </div>
+                        <div className="text-ash">
+                          {s.settled_at
+                            ? new Date(s.settled_at).toLocaleDateString()
+                            : new Date(s.created_at).toLocaleDateString()}
+                          {s.reference ? ` · ${s.reference}` : ""}
+                        </div>
+                      </div>
+                      <span className="text-ash">{s.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+        {earnings?.mollie_connected && mollieBalance?.status === "scope_missing" && (
+          <div className="card mb-10">
+            <h2 className="font-semibold text-white mb-1">Your Mollie balance</h2>
+            <p className="text-yellow-400 text-xs mt-1">
+              Reconnect your Mollie account to show balance and payout history (new permissions required).
+            </p>
+          </div>
+        )}
 
         {/* Listings */}
         <h2 className="text-lg font-semibold text-white mb-4">Your chargers</h2>
