@@ -1342,7 +1342,7 @@ async def verify_joining_fee(
 # ── Mollie Connect (seller payout accounts) ───────────────────────────────────
 
 MOLLIE_OAUTH_SCOPE = (
-    "payments.write organizations.read profiles.read "
+    "payments.read payments.write organizations.read profiles.read "
     "onboarding.read settlements.read balances.read"
 )
 
@@ -2049,17 +2049,21 @@ async def verify_checkout(
         b.buyer = current_user
         return _booking_out(b, show_pin=True)
 
-    # Ask Mollie directly — don't wait for webhook
+    # Ask Mollie directly — don't wait for webhook. Payment lives on the host's
+    # Mollie org (Connect for Platforms), so use their token to fetch it.
     if b.stripe_session_id:
         try:
-            payment = await _mollie("GET", f"/payments/{b.stripe_session_id}")
+            listing = await session.get(Listing, b.listing_id)
+            host = await session.get(User, listing.seller_id) if listing else None
+            if not host or not host.mollie_access_token:
+                raise RuntimeError("Host has no Mollie connection")
+            resp = await _mollie_user_request(host, session, "GET", f"/payments/{b.stripe_session_id}")
+            payment = resp.json()
             if payment.get("status") == "paid" and b.status == BookingStatus.pending:
                 b.status = BookingStatus.confirmed
                 b.pin_code = _gen_pin()
                 await session.commit()
                 logger.info("Booking %d confirmed via verify endpoint", b.id)
-                listing = await session.get(Listing, b.listing_id)
-                host = await session.get(User, listing.seller_id) if listing else None
                 if listing:
                     await send_pin_email(current_user.email, current_user.full_name, b, listing)
                 if host:
