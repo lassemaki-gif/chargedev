@@ -19,6 +19,13 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   if (ct) headers.set('content-type', ct);
   if (token) headers.set('authorization', `Bearer ${token}`);
 
+  // Forward the real client IP so backend rate limits aren't bucketed by the
+  // Vercel edge egress IP (which would let one attacker lock out everyone).
+  const xff = req.headers.get('x-forwarded-for');
+  const xri = req.headers.get('x-real-ip');
+  if (xff) headers.set('x-forwarded-for', xff);
+  if (xri) headers.set('x-real-ip', xri);
+
   const body = req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined;
 
   const res = await fetch(url, { method: req.method, headers, body });

@@ -32,9 +32,10 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     email_from: str = "ChargedEV <noreply@chargedev.io>"
 
+    # Production origins only. Local development must override via the
+    # ALLOWED_ORIGINS env var (comma-separated) so localhost cannot sneak into
+    # a prod CORS allowlist with allow_credentials=True.
     allowed_origins: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
         "https://chargedev.io",
         "https://www.chargedev.io",
     ]

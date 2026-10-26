@@ -132,7 +132,16 @@ async def _shelly_poll_loop() -> None:
             async def _poll_one(s):
                 async with sem:
                     try:
-                        client = ShellyClient(s.server, s.auth_key, s.device_id)
+                        # Fetch credentials fresh from the parent listing each tick
+                        # (the session row no longer stores a copy — single source
+                        # of truth, and a leaked sessions dump holds no secrets).
+                        async with async_session() as _sess:
+                            listing = await _sess.get(Listing, s.listing_id)
+                        if not listing or not listing.shelly_auth_key:
+                            logger.warning("Shelly session %d: parent listing missing creds — skipping", s.id)
+                            return
+                        auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
+                        client = ShellyClient(listing.shelly_server, auth_key, listing.shelly_device_id)
                         ds = await client.status()
                         if ds is None:
                             return
@@ -428,17 +437,24 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
 
 
 async def _shelly_start_session(booking: Booking, listing: Listing) -> None:
-    """Turn on Shelly relay and create a session record. Fires as a background task."""
+    """Turn on Shelly relay and create a session record. Fires as a background task.
+
+    The ShellySession row no longer duplicates auth_key/server from the listing —
+    the poll loop re-reads them from Listing each tick, so an auth-key rotation
+    on the listing immediately applies to the in-flight session, and a leaked
+    sessions table can't hand out every host's Shelly relay credentials.
+    """
     from .db import async_session
-    client = ShellyClient(listing.shelly_server, listing.shelly_auth_key, listing.shelly_device_id)
+    auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
+    client = ShellyClient(listing.shelly_server, auth_key, listing.shelly_device_id)
     ds = await client.status()
     if ds is None:
         logger.error("Shelly device offline for booking %d — cannot start session", booking.id)
         async with async_session() as sess:
             sess.add(ShellySession(
                 booking_id=booking.id, listing_id=listing.id,
-                device_id=listing.shelly_device_id, auth_key=listing.shelly_auth_key,
-                server=listing.shelly_server, target_kwh=float(booking.package_kwh),
+                device_id=listing.shelly_device_id, auth_key="", server="",
+                target_kwh=float(booking.package_kwh),
                 energy_start_wh=0.0, status="error",
             ))
             await sess.commit()
@@ -455,8 +471,8 @@ async def _shelly_start_session(booking: Booking, listing: Listing) -> None:
         if not existing:
             sess.add(ShellySession(
                 booking_id=booking.id, listing_id=listing.id,
-                device_id=listing.shelly_device_id, auth_key=listing.shelly_auth_key,
-                server=listing.shelly_server, target_kwh=float(booking.package_kwh),
+                device_id=listing.shelly_device_id, auth_key="", server="",
+                target_kwh=float(booking.package_kwh),
                 energy_start_wh=energy_start, status=session_status,
             ))
             await sess.commit()
@@ -612,6 +628,25 @@ def _decrypt_token(token: str) -> str:
     except InvalidToken:
         logger.error("Mollie token decrypt failed — key rotated or legacy plaintext row; reconnect required")
         raise HTTPException(401, "Mollie not connected — please reconnect your account")
+
+
+def _decrypt_shelly_key(key: str) -> str:
+    """Decrypt a Fernet-encrypted Shelly auth_key, falling back to plaintext for legacy rows.
+
+    Lenient fallback (unlike _decrypt_token) because an un-decryptable Shelly key
+    just means the row predates this encryption pass — we want the active charging
+    session to keep working, and the next write re-encrypts it.
+    """
+    if not key:
+        return key
+    from cryptography.fernet import Fernet, InvalidToken
+    try:
+        return Fernet(settings.mollie_token_key.encode()).decrypt(key.encode()).decode()
+    except InvalidToken:
+        return key  # legacy plaintext row — safe because the key still works for the Shelly API
+
+
+_encrypt_shelly_key = _encrypt_token  # same at-rest primitive
 
 
 async def _mollie(method: str, path: str, idempotency_key: Optional[str] = None, **kwargs) -> dict:
@@ -1223,19 +1258,44 @@ async def toggle_user(
 @app.put("/api/admin/bookings/{booking_id}/confirm")
 async def admin_confirm_booking(
     booking_id: int,
+    force: bool = False,
     _: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Manually confirm a pending booking and generate a PIN (admin fallback)."""
+    """Admin fallback: confirm a pending booking and mint a PIN.
+
+    Verifies the Mollie payment is actually paid before confirming, so a phished
+    or XSS'd admin session can't hand out free charging. Pass ?force=true to
+    override (logged as a warning for audit).
+    """
     b = await session.get(Booking, booking_id)
     if not b:
         raise HTTPException(404, "Booking not found")
     if b.status != BookingStatus.pending:
         raise HTTPException(400, f"Booking is already {b.status}")
+
+    if not force:
+        if not b.stripe_session_id:
+            raise HTTPException(400, "Booking has no Mollie payment ID — pass ?force=true if you really mean to confirm without payment")
+        listing = await session.get(Listing, b.listing_id)
+        host = await session.get(User, listing.seller_id) if listing else None
+        if not host or not host.mollie_access_token:
+            raise HTTPException(400, "Host has no Mollie connection — cannot verify payment")
+        try:
+            resp = await _mollie_user_request(host, session, "GET", f"/payments/{b.stripe_session_id}")
+            payment = resp.json()
+        except Exception as exc:
+            logger.error("Admin confirm: Mollie fetch failed for booking %d: %s", b.id, exc)
+            raise HTTPException(502, "Could not verify payment with Mollie")
+        if payment.get("status") != "paid":
+            raise HTTPException(409, f"Mollie payment status is {payment.get('status')} — not confirming")
+    else:
+        logger.warning("Admin FORCE-confirm booking %d — payment NOT verified", b.id)
+
     b.status = BookingStatus.confirmed
     b.pin_code = _gen_pin()
     await session.commit()
-    return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id}
+    return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id, "forced": force}
 
 
 # ── Admin: platform Mollie self-OAuth (one-time setup) ────────────────────────
@@ -1525,6 +1585,10 @@ async def mollie_connect_callback(
     user.mollie_access_token = _encrypt_token(access_token)   # MC-3: encrypted at rest
     user.mollie_refresh_token = _encrypt_token(refresh_token)
     user.mollie_profile_id = profile_id
+    # Per-host webhook token — stops the shared mollie_webhook_secret from
+    # being read by every onboarded host in their Mollie dashboard.
+    if not user.webhook_token:
+        user.webhook_token = secrets.token_urlsafe(32)
     await session.commit()
     logger.info("Mollie Connect completed for user %d, org %s", user_id, org["id"])
     return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=connected")
@@ -1692,6 +1756,13 @@ async def create_checkout(
     if not host or not host.mollie_access_token:
         raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
 
+    # Lazy backfill: pre-existing hosts need a per-host webhook token minted
+    # once so Mollie's stored webhookUrl carries their token instead of the
+    # shared platform secret.
+    if not host.webhook_token:
+        host.webhook_token = secrets.token_urlsafe(32)
+        await session.commit()
+
     # Lazy backfill: hosts who connected before the profile cache landed
     # don't yet have mollie_profile_id — fetch it once and store it.
     if not host.mollie_profile_id:
@@ -1718,7 +1789,10 @@ async def create_checkout(
         "amount": {"currency": "EUR", "value": f"{total:.2f}"},
         "description": f"{body.package_kwh} kWh — {listing.title}",
         "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
-        "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
+        # Per-host webhook token: the host can see this URL in their Mollie
+        # dashboard, so it must only authenticate webhooks for their own
+        # bookings — never the platform-wide secret.
+        "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?token={host.webhook_token}",
         "metadata": {"booking_id": str(booking.id)},
         "profileId": host.mollie_profile_id,
         "applicationFee": {
@@ -1775,7 +1849,7 @@ async def shelly_configure(
     if ds is None:
         raise HTTPException(400, "Could not connect to Shelly device. Check device ID, auth key, and server.")
     listing.shelly_device_id = body.device_id
-    listing.shelly_auth_key = body.auth_key
+    listing.shelly_auth_key = _encrypt_shelly_key(body.auth_key)
     listing.shelly_server = body.server
     await session.commit()
     return ShellyStatusOut(
@@ -1798,7 +1872,7 @@ async def shelly_status(
         raise HTTPException(404, "Listing not found")
     if not listing.shelly_device_id:
         return ShellyStatusOut(connected=False, error="No Shelly device configured")
-    client = ShellyClient(listing.shelly_server, listing.shelly_auth_key, listing.shelly_device_id)
+    client = ShellyClient(listing.shelly_server, _decrypt_shelly_key(listing.shelly_auth_key), listing.shelly_device_id)
     ds = await client.status()
     if ds is None:
         return ShellyStatusOut(connected=False, device_id=listing.shelly_device_id, error="Device offline or unreachable")
@@ -1986,12 +2060,13 @@ async def mollie_webhook(
     session: AsyncSession = Depends(get_session),
 ):
     """Mollie sends a form POST with the payment ID; we fetch the payment to verify status."""
-    # Verify shared secret to prevent webhook spoofing
+    # Accept either `?token=<host.webhook_token>` (booking payments) or
+    # `?webhook_secret=<platform>` (legacy / joining-fee payments). The token
+    # that lives in Mollie's webhookUrl field is readable by whichever account
+    # owns the payment, so hosts only ever learn their own per-user token —
+    # never the platform-wide secret, which stays scoped to joining fees.
+    incoming_token = request.query_params.get("token", "")
     incoming_secret = request.query_params.get("webhook_secret", "")
-    expected_secret = settings.mollie_webhook_secret
-    if not expected_secret or not secrets.compare_digest(incoming_secret, expected_secret):
-        logger.warning("Mollie webhook: invalid or missing webhook_secret")
-        raise HTTPException(401, "Invalid webhook secret")
 
     payment_id = id
     if not payment_id:
@@ -2007,10 +2082,23 @@ async def mollie_webhook(
         select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
     )).scalar_one_or_none()
 
+    # Authenticate the webhook against the right secret for this payment.
+    if b:
+        listing = await session.get(Listing, b.listing_id)
+        host = await session.get(User, listing.seller_id) if listing else None
+        expected = host.webhook_token if host else None
+        if not expected or not incoming_token or not secrets.compare_digest(incoming_token, expected):
+            logger.warning("Mollie webhook: bad per-host token for booking %d", b.id)
+            raise HTTPException(401, "Invalid webhook token")
+    else:
+        expected = settings.mollie_webhook_secret
+        if not expected or not incoming_secret or not secrets.compare_digest(incoming_secret, expected):
+            logger.warning("Mollie webhook: bad platform secret (payment_id=%s not a booking)", payment_id)
+            raise HTTPException(401, "Invalid webhook secret")
+
     try:
         if b:
-            listing = await session.get(Listing, b.listing_id)
-            host = await session.get(User, listing.seller_id) if listing else None
+            # listing + host already resolved during the auth check above
             if not host or not host.mollie_access_token:
                 logger.error("Booking %d: host has no Mollie connection — cannot verify payment", b.id)
                 return JSONResponse({"received": True})
