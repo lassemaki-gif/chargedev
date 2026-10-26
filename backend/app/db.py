@@ -94,7 +94,11 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS vat_eur FLOAT NOT NULL DEFAULT 0",
                     "ALTER TABLE ocpp_charge_points ADD COLUMN IF NOT EXISTS auth_token VARCHAR(64)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS webhook_token VARCHAR(64)",
-                    "UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL",
+                    # NOTE: removed `UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL`
+                    # which backfilled every pre-existing row to verified on first boot — a one-shot
+                    # migration that no longer needs to run on fresh deploys. New rows default to FALSE
+                    # at the model level (models.py). Keeping it here would silently verify any future
+                    # NULL rows (e.g. accounts migrated in from a backup).
                     """CREATE TABLE IF NOT EXISTS platform_mollie (
                         id INTEGER PRIMARY KEY DEFAULT 1,
                         access_token VARCHAR(2048),

@@ -1,6 +1,7 @@
 """ChargedEV API — EV charging marketplace backend."""
 import asyncio
 import logging
+import re
 import secrets
 import string
 from contextlib import asynccontextmanager
@@ -566,9 +567,25 @@ app.add_middleware(
 )
 
 
+_SECRET_PARAM_RE = re.compile(
+    r"(token|webhook_secret|access_token|refresh_token|client_secret|auth_key|code)=([^&\s'\"]+)",
+    re.IGNORECASE,
+)
+
+
+def _scrub(text: str) -> str:
+    """Redact secret-shaped query/body params before logging.
+
+    httpx errors stringify as `Client error 'XXX' for url 'https://.../?token=…'`,
+    which would otherwise land per-host webhook tokens, OAuth codes, and refresh
+    tokens in Railway's log pipeline on any unhandled error path.
+    """
+    return _SECRET_PARAM_RE.sub(lambda m: f"{m.group(1)}=***", text or "")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error on %s: %s: %s", request.url.path, type(exc).__name__, exc, exc_info=True)
+    logger.error("Unhandled error on %s: %s: %s", request.url.path, type(exc).__name__, _scrub(str(exc)), exc_info=True)
     origin = request.headers.get("origin", "")
     safe_origin = origin if origin in settings.allowed_origins else ""
     headers = {"Access-Control-Allow-Credentials": "true"}
@@ -677,7 +694,7 @@ async def _refresh_mollie_token(user: User, session: AsyncSession) -> str:
             data={"grant_type": "refresh_token", "refresh_token": refresh_token},
         )
     if resp.status_code >= 400:
-        logger.warning("Mollie refresh failed for user %d: %s %s", user.id, resp.status_code, resp.text)
+        logger.warning("Mollie refresh failed for user %d: %s %s", user.id, resp.status_code, _scrub(resp.text))
         raise HTTPException(401, "Mollie refresh failed — reconnect required")
     tokens = resp.json()
     access_token = tokens["access_token"]
@@ -727,7 +744,7 @@ async def _refresh_platform_mollie_token(row: PlatformMollie, session: AsyncSess
             data={"grant_type": "refresh_token", "refresh_token": refresh_token},
         )
     if resp.status_code >= 400:
-        logger.warning("Platform Mollie refresh failed: %s %s", resp.status_code, resp.text)
+        logger.warning("Platform Mollie refresh failed: %s %s", resp.status_code, _scrub(resp.text))
         raise HTTPException(503, "Platform Mollie refresh failed")
     tokens = resp.json()
     access_token = tokens["access_token"]
@@ -1495,7 +1512,7 @@ async def mollie_connect_redirect(
             return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
         except httpx.HTTPStatusError as exc:
             logger.warning("Client Link creation failed (%s), falling back to raw OAuth: %s",
-                           exc.response.status_code, exc.response.text)
+                           exc.response.status_code, _scrub(exc.response.text))
         except Exception as exc:
             logger.warning("Client Link creation failed, falling back to raw OAuth: %s", exc)
     return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{urlencode(oauth_params)}"}
@@ -1646,7 +1663,7 @@ async def mollie_balance(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             return {"status": "scope_missing", "detail": "Reconnect Mollie to enable balance view"}
-        logger.error("Mollie balance fetch failed: %s", exc.response.text)
+        logger.error("Mollie balance fetch failed: %s", _scrub(exc.response.text))
         return {"status": "error"}
     except Exception as exc:
         logger.error("Mollie balance fetch failed: %s", exc)
@@ -1685,7 +1702,7 @@ async def mollie_settlements(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 403:
             return {"status": "scope_missing", "settlements": []}
-        logger.error("Mollie settlements fetch failed: %s", exc.response.text)
+        logger.error("Mollie settlements fetch failed: %s", _scrub(exc.response.text))
         return {"status": "error", "settlements": []}
     except Exception as exc:
         logger.error("Mollie settlements fetch failed: %s", exc)
@@ -1779,7 +1796,7 @@ async def create_checkout(
             if exc.response.status_code == 403:
                 logger.warning("Host %d: profiles.read scope missing — reconnect required", host.id)
                 raise HTTPException(409, "This host needs to reconnect their Mollie account to grant profile access. Please try another charger.")
-            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, exc.response.text)
+            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, _scrub(exc.response.text))
             raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
         except Exception as exc:
             logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, exc)
@@ -1812,7 +1829,7 @@ async def create_checkout(
         raise
     except httpx.HTTPStatusError as exc:
         logger.error("Mollie payment creation failed: status=%s body=%s",
-                     exc.response.status_code, exc.response.text)
+                     exc.response.status_code, _scrub(exc.response.text))
         raise HTTPException(502, "Could not create payment. Please try again.")
     except Exception as exc:
         logger.error("Mollie payment creation failed: %s", exc)
@@ -2157,7 +2174,7 @@ async def mollie_webhook(
         else:
             logger.warning("Mollie webhook: booking not found or already processed for payment %s", payment_id)
     except Exception as exc:
-        logger.error("Mollie webhook handler error: %s", exc, exc_info=True)
+        logger.error("Mollie webhook handler error: %s", _scrub(str(exc)), exc_info=True)
 
     return JSONResponse({"received": True})
 
