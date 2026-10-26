@@ -1673,6 +1673,13 @@ async def create_checkout(
             prof_resp = await _mollie_user_request(host, session, "GET", "/profiles/me")
             host.mollie_profile_id = prof_resp.json().get("id")
             await session.commit()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 403:
+                # The host's OAuth token predates the profiles.read scope grant.
+                logger.warning("Host %d: profiles.read scope missing — reconnect required", host.id)
+                raise HTTPException(409, "This host needs to reconnect their Mollie account to grant access to their payment profile. Please try another charger.")
+            logger.error("Could not fetch Mollie profile for host %d: %s", host.id, exc.response.text)
+            raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
         except Exception as exc:
             logger.error("Could not fetch Mollie profile for host %d: %s", host.id, exc)
             raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
