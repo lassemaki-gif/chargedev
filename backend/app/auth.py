@@ -26,7 +26,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(user_id: int, role: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     return jwt.encode(
-        {"sub": str(user_id), "role": role, "exp": expire},
+        {"sub": str(user_id), "role": role, "typ": "session", "exp": expire},
         settings.secret_key,
         algorithm=JWT_ALGORITHM,
     )
@@ -40,7 +40,15 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
         payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=[JWT_ALGORITHM])
+        # Reject tokens minted for other purposes (OAuth state, future types) so a
+        # leaked state JWT from the Mollie authorize URL cannot be presented as a
+        # session Bearer. Missing `typ` is accepted for in-flight sessions issued
+        # before this change — remove after the session TTL has rolled.
+        if payload.get("typ") not in (None, "session"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         user_id = int(payload["sub"])
+    except HTTPException:
+        raise
     except (JWTError, KeyError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     user = await session.get(User, user_id)

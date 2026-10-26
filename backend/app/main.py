@@ -358,6 +358,11 @@ logger = logging.getLogger(__name__)
 
 if not settings.secret_key:
     raise RuntimeError("SECRET_KEY env var is not set. Generate one with: openssl rand -hex 32")
+if not settings.mollie_token_key:
+    raise RuntimeError(
+        "MOLLIE_TOKEN_KEY env var is not set. Generate one with: "
+        "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+    )
 
 
 def real_ip(request: Request) -> str:
@@ -581,22 +586,32 @@ def _gen_pin() -> str:
 
 
 def _encrypt_token(token: str) -> str:
-    """Encrypt a Mollie OAuth token at rest using Fernet symmetric encryption."""
-    if not settings.mollie_token_key or not token:
+    """Encrypt a Mollie OAuth token at rest using Fernet symmetric encryption.
+
+    Fails closed: a missing MOLLIE_TOKEN_KEY is caught at startup, so a plaintext
+    passthrough can never leave live tokens unencrypted in the database.
+    """
+    if not token:
         return token
     from cryptography.fernet import Fernet
     return Fernet(settings.mollie_token_key.encode()).encrypt(token.encode()).decode()
 
 
 def _decrypt_token(token: str) -> str:
-    """Decrypt a Fernet-encrypted Mollie OAuth token."""
-    if not settings.mollie_token_key or not token:
+    """Decrypt a Fernet-encrypted Mollie OAuth token.
+
+    Fails loudly on decryption errors (key rotated, ciphertext corrupted, legacy
+    plaintext row) rather than returning the stored string unchanged — the old
+    silent passthrough would hand a stale ciphertext back to Mollie as a Bearer.
+    """
+    if not token:
         return token
+    from cryptography.fernet import Fernet, InvalidToken
     try:
-        from cryptography.fernet import Fernet
         return Fernet(settings.mollie_token_key.encode()).decrypt(token.encode()).decode()
-    except Exception:
-        return token  # Return as-is if not encrypted (legacy plain tokens)
+    except InvalidToken:
+        logger.error("Mollie token decrypt failed — key rotated or legacy plaintext row; reconnect required")
+        raise HTTPException(401, "Mollie not connected — please reconnect your account")
 
 
 async def _mollie(method: str, path: str, idempotency_key: Optional[str] = None, **kwargs) -> dict:
@@ -1243,7 +1258,8 @@ async def platform_mollie_connect(
     await session.commit()
 
     state = jose_jwt.encode(
-        {"platform": True, "nonce": nonce, "exp": datetime.utcnow().timestamp() + 600},
+        {"platform": True, "nonce": nonce, "typ": "oauth_state",
+         "exp": datetime.utcnow().timestamp() + 600},
         settings.secret_key, algorithm="HS256",
     )
     # Mollie allows only one redirect URI per app; reuse the registered seller
@@ -1379,6 +1395,7 @@ async def mollie_connect_redirect(
 
     state = jose_jwt.encode(
         {"sub": str(current_user.id), "role": current_user.role, "nonce": nonce,
+         "typ": "oauth_state",
          "exp": datetime.utcnow().timestamp() + 600},
         settings.secret_key, algorithm="HS256",
     )
@@ -1814,9 +1831,15 @@ async def shelly_disconnect(
 
 @app.websocket("/ocpp/{charge_point_id}")
 async def ocpp_websocket(websocket: WebSocket, charge_point_id: str):
-    """WebSocket endpoint for OCPP 1.6 charge points to connect to."""
+    """WebSocket endpoint for OCPP 1.6 charge points to connect to.
+
+    Requires `?token=<cp.auth_token>` on the URL. The charge_point_id itself is
+    not a secret — it travels in UI responses and intermediary logs — so an
+    unauthenticated socket would let anyone who learned the id hijack the
+    wallbox and send fake StopTransaction / MeterValues RPCs.
+    """
+    token = websocket.query_params.get("token", "")
     from .db import async_session as _as
-    # Verify charge point is registered before accepting the connection
     async with _as() as sess:
         db_cp = (await sess.execute(
             select(OcppChargePoint).where(OcppChargePoint.charge_point_id == charge_point_id)
@@ -1824,6 +1847,14 @@ async def ocpp_websocket(websocket: WebSocket, charge_point_id: str):
     if not db_cp:
         logger.warning("OCPP: rejected unknown charge point %s", charge_point_id)
         await websocket.close(code=4001, reason="Unknown charge point")
+        return
+    if not db_cp.auth_token:
+        logger.warning("OCPP: charge point %s has no auth_token — host must re-register", charge_point_id)
+        await websocket.close(code=4401, reason="Re-register required")
+        return
+    if not token or not secrets.compare_digest(token, db_cp.auth_token):
+        logger.warning("OCPP: rejected %s — bad or missing token", charge_point_id)
+        await websocket.close(code=4401, reason="Unauthorized")
         return
     if charge_point_id in _ocpp_connections:
         logger.warning("OCPP: charge point %s reconnecting — displacing existing connection", charge_point_id)
@@ -1875,14 +1906,17 @@ async def ocpp_register(
     )).scalar_one_or_none()
     if existing and existing.listing_id != listing_id:
         raise HTTPException(400, "This charge point ID is already registered to another listing")
-    # Upsert
+    # Upsert and (re)mint a per-charge-point secret so the WebSocket endpoint
+    # can distinguish the real wallbox from someone who merely learned its id.
     cp = existing or OcppChargePoint(listing_id=listing_id, charge_point_id=body.charge_point_id)
     cp.charge_point_id = body.charge_point_id
+    cp.auth_token = secrets.token_urlsafe(32)
     if not existing:
         session.add(cp)
     listing.ocpp_charge_point_id = body.charge_point_id
     await session.commit()
-    ws_url = f"{settings.frontend_url.replace('https://', 'wss://').replace('http://', 'ws://')}/ocpp/{body.charge_point_id}".replace("chargedev.io", "chargedev-production.up.railway.app")
+    base = settings.backend_url.replace("https://", "wss://").replace("http://", "ws://")
+    ws_url = f"{base}/ocpp/{body.charge_point_id}?token={cp.auth_token}"
     return OcppChargePointOut(
         charge_point_id=cp.charge_point_id,
         vendor=cp.vendor,
@@ -1909,7 +1943,12 @@ async def ocpp_status(
     )).scalar_one_or_none()
     if not cp:
         raise HTTPException(404, "Charge point not found")
-    ws_url = f"wss://chargedev-production.up.railway.app/ocpp/{cp.charge_point_id}"
+    base = settings.backend_url.replace("https://", "wss://").replace("http://", "ws://")
+    # Only include the token in the URL if one has been minted — hosts whose
+    # charge point predates the auth-token column must re-register to pair it.
+    ws_url = f"{base}/ocpp/{cp.charge_point_id}"
+    if cp.auth_token:
+        ws_url += f"?token={cp.auth_token}"
     return OcppChargePointOut(
         charge_point_id=cp.charge_point_id,
         vendor=cp.vendor,

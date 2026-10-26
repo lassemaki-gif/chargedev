@@ -140,6 +140,7 @@ class OcppChargePoint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), unique=True, nullable=False)
     charge_point_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    auth_token: Mapped[Optional[str]] = mapped_column(String(64))  # required at WebSocket connect
     vendor: Mapped[Optional[str]] = mapped_column(String(255))
     model: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), default="offline")
