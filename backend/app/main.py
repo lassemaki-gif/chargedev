@@ -1483,18 +1483,21 @@ async def mollie_connect_callback(
         org_resp.raise_for_status()
         org = org_resp.json()
 
-        # OAuth-created payments need an explicit profileId; cache the primary
-        # profile now so checkout does not have to round-trip to Mollie.
+        # OAuth-created payments need an explicit profileId. /profiles/me is
+        # API-key-scoped (one key = one profile), so for OAuth we list all
+        # profiles on the org and take the first (= the primary).
         profile_id: Optional[str] = None
         try:
             prof_resp = await client.get(
-                "https://api.mollie.com/v2/profiles/me",
+                "https://api.mollie.com/v2/profiles",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
             prof_resp.raise_for_status()
-            profile_id = prof_resp.json().get("id")
+            profiles = prof_resp.json().get("_embedded", {}).get("profiles", [])
+            if profiles:
+                profile_id = profiles[0].get("id")
         except Exception as exc:
-            logger.warning("Could not fetch Mollie profile for user %d: %s", user_id, exc)
+            logger.warning("Could not fetch Mollie profiles for user %d: %s", user_id, exc)
 
     user.stripe_account_id = org["id"]          # Mollie org ID
     user.mollie_access_token = _encrypt_token(access_token)   # MC-3: encrypted at rest
@@ -1670,18 +1673,22 @@ async def create_checkout(
     # don't yet have mollie_profile_id — fetch it once and store it.
     if not host.mollie_profile_id:
         try:
-            prof_resp = await _mollie_user_request(host, session, "GET", "/profiles/me")
-            host.mollie_profile_id = prof_resp.json().get("id")
+            prof_resp = await _mollie_user_request(host, session, "GET", "/profiles")
+            profiles = prof_resp.json().get("_embedded", {}).get("profiles", [])
+            if not profiles:
+                raise HTTPException(409, "This host hasn't created a payment profile in Mollie yet. Please try another charger.")
+            host.mollie_profile_id = profiles[0].get("id")
             await session.commit()
+        except HTTPException:
+            raise
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 403:
-                # The host's OAuth token predates the profiles.read scope grant.
                 logger.warning("Host %d: profiles.read scope missing — reconnect required", host.id)
-                raise HTTPException(409, "This host needs to reconnect their Mollie account to grant access to their payment profile. Please try another charger.")
-            logger.error("Could not fetch Mollie profile for host %d: %s", host.id, exc.response.text)
+                raise HTTPException(409, "This host needs to reconnect their Mollie account to grant profile access. Please try another charger.")
+            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, exc.response.text)
             raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
         except Exception as exc:
-            logger.error("Could not fetch Mollie profile for host %d: %s", host.id, exc)
+            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, exc)
             raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
 
     payment_data: dict = {
