@@ -115,6 +115,7 @@ class Booking(Base):
     package_kwh: Mapped[int] = mapped_column(Integer, nullable=False)  # 20/40/60/80
     price_per_kwh: Mapped[float] = mapped_column(Float, nullable=False)
     total_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    vat_eur: Mapped[float] = mapped_column(Float, nullable=False, server_default="0")
     seller_earnings_eur: Mapped[float] = mapped_column(Float, nullable=False)
     platform_fee_eur: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), default=BookingStatus.pending)

@@ -410,6 +410,7 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Charger</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111">{html_escape(listing.title)}</td></tr>
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Address</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{html_escape(listing.address)}, {html_escape(listing.city)}</td></tr>
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Package</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#111">{booking.package_kwh} kWh</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px solid #eee;color:#9CA3AF">incl. VAT 25.5%</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;color:#9CA3AF">€{(booking.vat_eur or 0):.2f}</td></tr>
                 <tr><td style="padding:6px 0">Total paid</td><td style="padding:6px 0;text-align:right;font-weight:700;color:#111">€{booking.total_eur:.2f}</td></tr>
               </table>
               <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
@@ -559,17 +560,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-def _calc_amounts(package_kwh: int, price_per_kwh: float) -> tuple[float, float, float]:
-    """Return (total_eur, fee_eur, earnings_eur) using Decimal to avoid float rounding errors."""
+def _calc_amounts(package_kwh: int, price_per_kwh: float) -> tuple[float, float, float, float]:
+    """Return (total_eur_gross, vat_eur, fee_eur, earnings_eur) using Decimal to avoid float rounding.
+
+    Finnish VAT at 25.5% is treated as included in the host's listed price. The
+    platform (ChargedEV) is the deemed supplier and remits VAT to the Finnish
+    tax authority; the 20% platform fee is taken from the net (ex-VAT) amount.
+    """
     VAT_RATE = Decimal("0.255")
     total = (Decimal(str(package_kwh)) * Decimal(str(price_per_kwh))).quantize(Decimal("0.01"), ROUND_HALF_UP)
-    # Extract VAT from gross price — VAT is remitted to Finnish tax authority before split
     vat = (total * VAT_RATE / (1 + VAT_RATE)).quantize(Decimal("0.01"), ROUND_HALF_UP)
     net = total - vat
-    # Split net 80/20 between host and platform
     fee = (net * Decimal(str(settings.platform_fee_pct))).quantize(Decimal("0.01"), ROUND_HALF_UP)
     earnings = (net - fee).quantize(Decimal("0.01"), ROUND_HALF_UP)
-    return float(total), float(fee), float(earnings)
+    return float(total), float(vat), float(fee), float(earnings)
 
 
 def _gen_pin() -> str:
@@ -730,6 +734,7 @@ def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
         package_kwh=b.package_kwh,
         price_per_kwh=b.price_per_kwh,
         total_eur=b.total_eur,
+        vat_eur=b.vat_eur or 0,
         seller_earnings_eur=b.seller_earnings_eur,
         platform_fee_eur=b.platform_fee_eur,
         status=b.status,
@@ -1646,7 +1651,7 @@ async def create_checkout(
     if not listing or not listing.is_available:
         raise HTTPException(404, "Listing not found or unavailable")
 
-    total, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)
+    total, vat, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)
 
     # Create pending booking (no PIN yet — assigned after payment)
     booking = Booking(
@@ -1655,6 +1660,7 @@ async def create_checkout(
         package_kwh=body.package_kwh,
         price_per_kwh=listing.price_per_kwh,
         total_eur=total,
+        vat_eur=vat,
         seller_earnings_eur=earnings,
         platform_fee_eur=fee,
         status=BookingStatus.pending,

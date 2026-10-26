@@ -173,6 +173,7 @@ class BookingOut(BaseModel):
     package_kwh: int
     price_per_kwh: float
     total_eur: float
+    vat_eur: float = 0
     seller_earnings_eur: float
     platform_fee_eur: float
     status: str
