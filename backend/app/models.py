@@ -49,6 +49,7 @@ class User(Base):
     mollie_access_token: Mapped[Optional[str]] = mapped_column(String(2048))
     mollie_refresh_token: Mapped[Optional[str]] = mapped_column(String(2048))
     mollie_oauth_nonce: Mapped[Optional[str]] = mapped_column(String(64))
+    mollie_profile_id: Mapped[Optional[str]] = mapped_column(String(40))  # pfl_… — required on OAuth-created payments
     joining_fee_paid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

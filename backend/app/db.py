@@ -90,6 +90,7 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     )""",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(64)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS mollie_profile_id VARCHAR(40)",
                     "UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL",
                     """CREATE TABLE IF NOT EXISTS platform_mollie (
                         id INTEGER PRIMARY KEY DEFAULT 1,

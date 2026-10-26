@@ -1483,9 +1483,23 @@ async def mollie_connect_callback(
         org_resp.raise_for_status()
         org = org_resp.json()
 
+        # OAuth-created payments need an explicit profileId; cache the primary
+        # profile now so checkout does not have to round-trip to Mollie.
+        profile_id: Optional[str] = None
+        try:
+            prof_resp = await client.get(
+                "https://api.mollie.com/v2/profiles/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            prof_resp.raise_for_status()
+            profile_id = prof_resp.json().get("id")
+        except Exception as exc:
+            logger.warning("Could not fetch Mollie profile for user %d: %s", user_id, exc)
+
     user.stripe_account_id = org["id"]          # Mollie org ID
     user.mollie_access_token = _encrypt_token(access_token)   # MC-3: encrypted at rest
     user.mollie_refresh_token = _encrypt_token(refresh_token)
+    user.mollie_profile_id = profile_id
     await session.commit()
     logger.info("Mollie Connect completed for user %d, org %s", user_id, org["id"])
     return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=connected")
@@ -1652,12 +1666,24 @@ async def create_checkout(
     if not host or not host.mollie_access_token:
         raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
 
+    # Lazy backfill: hosts who connected before the profile cache landed
+    # don't yet have mollie_profile_id — fetch it once and store it.
+    if not host.mollie_profile_id:
+        try:
+            prof_resp = await _mollie_user_request(host, session, "GET", "/profiles/me")
+            host.mollie_profile_id = prof_resp.json().get("id")
+            await session.commit()
+        except Exception as exc:
+            logger.error("Could not fetch Mollie profile for host %d: %s", host.id, exc)
+            raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
+
     payment_data: dict = {
         "amount": {"currency": "EUR", "value": f"{total:.2f}"},
         "description": f"{body.package_kwh} kWh — {listing.title}",
         "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
         "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
         "metadata": {"booking_id": str(booking.id)},
+        "profileId": host.mollie_profile_id,
         "applicationFee": {
             "amount": {"currency": "EUR", "value": f"{fee:.2f}"},
             "description": "ChargedEV platform fee",
