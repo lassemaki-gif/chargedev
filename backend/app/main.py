@@ -1395,14 +1395,27 @@ async def mollie_connect_redirect(
         "name": current_user.full_name or current_user.email.split("@")[0],
         "address": {"country": "FI"},
     }
-    try:
-        resp = await _platform_mollie_request(session, "POST", "/client-links", json=client_link_body)
-        link = resp.json()
-        base_url = link["_links"]["clientLink"]["href"]
-        return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
-    except Exception as exc:
-        logger.warning("Client Link creation failed, falling back to raw OAuth: %s", exc)
-        return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{urlencode(oauth_params)}"}
+    # Mollie's POST /v2/client-links requires a dashboard-created Advanced
+    # Access Token (prefix `access_`) with the clients.write permission; OAuth
+    # tokens are rejected with 403 regardless of requested scope.
+    if settings.mollie_advanced_access_token:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    "https://api.mollie.com/v2/client-links",
+                    headers={"Authorization": f"Bearer {settings.mollie_advanced_access_token}"},
+                    json=client_link_body,
+                )
+                resp.raise_for_status()
+            link = resp.json()
+            base_url = link["_links"]["clientLink"]["href"]
+            return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
+        except httpx.HTTPStatusError as exc:
+            logger.warning("Client Link creation failed (%s), falling back to raw OAuth: %s",
+                           exc.response.status_code, exc.response.text)
+        except Exception as exc:
+            logger.warning("Client Link creation failed, falling back to raw OAuth: %s", exc)
+    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{urlencode(oauth_params)}"}
 
 
 @app.get("/api/seller/mollie/callback")
