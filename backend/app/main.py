@@ -636,7 +636,8 @@ async def _refresh_mollie_token(user: User, session: AsyncSession) -> str:
 
 
 async def _mollie_user_request(
-    user: User, session: AsyncSession, method: str, path: str, **kwargs,
+    user: User, session: AsyncSession, method: str, path: str,
+    idempotency_key: Optional[str] = None, **kwargs,
 ) -> httpx.Response:
     """Call Mollie with the seller's access token; refresh + retry on an invalid-token response.
 
@@ -647,15 +648,15 @@ async def _mollie_user_request(
         raise HTTPException(401, "Mollie not connected")
     access_token = _decrypt_token(user.mollie_access_token)
     url = f"https://api.mollie.com/v2{path}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.request(
-            method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
-        )
+        resp = await client.request(method, url, headers=headers, **kwargs)
         if _is_mollie_auth_error(resp):
             access_token = await _refresh_mollie_token(user, session)
-            resp = await client.request(
-                method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
-            )
+            headers["Authorization"] = f"Bearer {access_token}"
+            resp = await client.request(method, url, headers=headers, **kwargs)
         resp.raise_for_status()
         return resp
 
@@ -1645,49 +1646,46 @@ async def create_checkout(
     session.add(booking)
     await session.flush()  # get booking.id before commit
 
-    # Add routing if seller has Mollie Connect
+    # Connect for Platforms: the host owns the payment on their own Mollie org;
+    # we take a 20% application fee that lands in the platform balance.
     host = await session.get(User, listing.seller_id)
+    if not host or not host.mollie_access_token:
+        raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
+
     payment_data: dict = {
         "amount": {"currency": "EUR", "value": f"{total:.2f}"},
         "description": f"{body.package_kwh} kWh — {listing.title}",
         "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
         "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
         "metadata": {"booking_id": str(booking.id)},
+        "applicationFee": {
+            "amount": {"currency": "EUR", "value": f"{fee:.2f}"},
+            "description": "ChargedEV platform fee",
+        },
     }
-    if host and host.stripe_account_id:
-        payment_data["routing"] = [{
-            "amount": {"currency": "EUR", "value": f"{earnings:.2f}"},
-            "destination": {"type": "organization", "organizationId": host.stripe_account_id},
-        }]
 
-    # Create Mollie payment
     idempotency_key = f"booking-{booking.id}"
-    routing_succeeded = False
     try:
-        payment = await _mollie("POST", "/payments", idempotency_key=idempotency_key, json=payment_data)
-        routing_succeeded = "routing" in payment_data
+        resp = await _mollie_user_request(
+            host, session, "POST", "/payments",
+            idempotency_key=idempotency_key, json=payment_data,
+        )
+        payment = resp.json()
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 422 and "routing" in exc.response.text:
-            # Seller's Mollie account not yet verified — fall back to no routing
-            logger.warning("Mollie routing rejected for booking (seller not yet verified) — retrying without routing")
-            payment_data.pop("routing", None)
-            try:
-                payment = await _mollie("POST", "/payments", idempotency_key=idempotency_key, json=payment_data)
-                routing_succeeded = False
-            except Exception as exc2:
-                logger.error("Mollie payment creation failed (no routing): %s", exc2)
-                raise HTTPException(502, "Could not create payment. Please try again.")
-        else:
-            logger.error("Mollie payment creation failed: status=%s body=%s", exc.response.status_code, exc.response.text)
-            raise HTTPException(502, f"Could not create payment: {exc.response.text}")
+        logger.error("Mollie payment creation failed: status=%s body=%s",
+                     exc.response.status_code, exc.response.text)
+        raise HTTPException(502, "Could not create payment. Please try again.")
     except Exception as exc:
         logger.error("Mollie payment creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
 
     booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
-    if routing_succeeded:  # MC-4: only mark paid_out when routing actually transferred earnings
-        booking.paid_out = True
-        booking.paid_out_at = datetime.utcnow()
+    # Under applicationFee, Mollie credits the host's balance net of the fee at
+    # capture time — no manual payout step needed.
+    booking.paid_out = True
+    booking.paid_out_at = datetime.utcnow()
     await session.commit()
 
     checkout_url = payment["_links"]["checkout"]["href"]
@@ -1917,8 +1915,24 @@ async def mollie_webhook(
 
     logger.info("Mollie webhook received: payment_id=%s", payment_id)
 
+    # Look up booking first so we know which token can read this payment:
+    # booking payments live on the host's org (Connect for Platforms); joining
+    # fees have no booking row and live on the platform.
+    b = (await session.execute(
+        select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
+    )).scalar_one_or_none()
+
     try:
-        payment = await _mollie("GET", f"/payments/{payment_id}")
+        if b:
+            listing = await session.get(Listing, b.listing_id)
+            host = await session.get(User, listing.seller_id) if listing else None
+            if not host or not host.mollie_access_token:
+                logger.error("Booking %d: host has no Mollie connection — cannot verify payment", b.id)
+                return JSONResponse({"received": True})
+            resp = await _mollie_user_request(host, session, "GET", f"/payments/{payment_id}")
+            payment = resp.json()
+        else:
+            payment = await _mollie("GET", f"/payments/{payment_id}")
     except Exception as exc:
         logger.error("Could not fetch Mollie payment %s: %s", payment_id, exc)
         return JSONResponse({"received": True})
@@ -1929,7 +1943,7 @@ async def mollie_webhook(
 
     metadata = payment.get("metadata") or {}
 
-    # Handle joining fee payments
+    # Handle joining fee payments (no booking row — payment is on the platform)
     if metadata.get("type") == "joining_fee":
         user_id = int(metadata.get("user_id", 0))
         if user_id:
@@ -1940,11 +1954,7 @@ async def mollie_webhook(
                 logger.info("Joining fee confirmed via webhook for user %d", user_id)
         return JSONResponse({"received": True})
 
-    # Look up booking by stored payment ID (with row lock to prevent double-confirmation)
-    b = (await session.execute(
-        select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
-    )).scalar_one_or_none()
-
+    # Fallback booking lookup via metadata (rare race: webhook before commit)
     if not b:
         booking_id = int(metadata.get("booking_id", 0))
         if booking_id:
