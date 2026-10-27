@@ -56,6 +56,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_token: Mapped[Optional[str]] = mapped_column(String(64))
+    password_reset_hash: Mapped[Optional[str]] = mapped_column(String(128))  # sha256 of raw token
+    password_reset_expires: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     listings: Mapped[List[Listing]] = relationship("Listing", back_populates="seller")

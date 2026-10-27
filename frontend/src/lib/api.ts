@@ -53,6 +53,10 @@ export const api = {
     authReq<{ role: string; full_name: string }>("POST", "/api/auth/login", { email, password }),
   logout: () => fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }),
   me: () => req<{ id: number; email: string; full_name: string; role: string }>("GET", "/api/auth/me"),
+  forgotPassword: (email: string) =>
+    req<{ ok: boolean }>("POST", "/api/auth/forgot-password", { email }),
+  resetPassword: (token: string, new_password: string) =>
+    req<{ ok: boolean }>("POST", "/api/auth/reset-password", { token, new_password }),
 
   // Public listings
   listings: (city?: string) => req<Listing[]>("GET", `/api/listings${city ? `?city=${encodeURIComponent(city)}` : ""}`),

@@ -111,6 +111,11 @@ export default function ChargerDetail() {
               {loading ? "Please wait…" : mode === "login" ? "Sign in & book" : "Create account & book"}
             </button>
           </form>
+          {mode === "login" && (
+            <a href="/forgot-password" className="mt-3 block text-ash text-sm hover:text-white text-center">
+              Forgot password?
+            </a>
+          )}
           <button className="mt-3 text-ash text-sm hover:text-white w-full text-center" onClick={() => setMode(mode === "login" ? "register" : "login")}>
             {mode === "login" ? "No account? Register" : "Already have one? Sign in"}
           </button>

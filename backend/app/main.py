@@ -1,5 +1,6 @@
 """ChargedEV API — EV charging marketplace backend."""
 import asyncio
+import hashlib
 import logging
 import re
 import secrets
@@ -7,7 +8,7 @@ import string
 from contextlib import asynccontextmanager
 from decimal import Decimal, ROUND_HALF_UP
 from html import escape as html_escape
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -37,9 +38,9 @@ from .models import (
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from .schemas import (
-    BookingCreate, BookingOut, ListingCreate, ListingOut,
+    BookingCreate, BookingOut, ForgotPasswordRequest, ListingCreate, ListingOut,
     LoginRequest, OcppChargePointOut, OcppRegisterRequest, PlatformStats,
-    ProfileUpdate, RegisterRequest, ReviewCreate, ReviewOut, SellerEarnings,
+    ProfileUpdate, RegisterRequest, ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings,
     ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
 )
 
@@ -529,6 +530,31 @@ async def send_host_booking_email(host_email: str, host_name: str, booking: Book
     except Exception as exc:
         logger.error("Failed to send host booking email: %s", exc)
 
+async def send_password_reset_email(email: str, full_name: str, token: str) -> None:
+    if not settings.resend_api_key:
+        return
+    reset_url = f"{settings.frontend_url}/reset-password?token={token}"
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": [email],
+            "subject": "Reset your ChargedEV password",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#22C55E;margin-bottom:4px">Reset your password 🔑</h2>
+              <p style="color:#555">Hi {html_escape(full_name)}, click below to pick a new password for your ChargedEV account. The link expires in one hour and can only be used once.</p>
+              <div style="margin:24px 0">
+                <a href="{reset_url}" style="background:#22C55E;color:#0A0F1E;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Reset password</a>
+              </div>
+              <p style="color:#9CA3AF;font-size:12px">If you didn't ask to reset your password, ignore this email — your current password still works.</p>
+              <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
+            </div>
+            """,
+        })
+    except Exception as exc:
+        logger.error("Failed to send password reset email: %s", _scrub(str(exc)))
+
+
 async def send_verification_email(email: str, full_name: str, token: str) -> None:
     if not settings.resend_api_key:
         return
@@ -872,6 +898,42 @@ async def login(request: Request, body: LoginRequest, session: AsyncSession = De
         role=user.role,
         full_name=user.full_name,
     )
+
+
+@app.post("/api/auth/forgot-password")
+@limiter.limit("3/hour")
+async def forgot_password(request: Request, body: ForgotPasswordRequest, session: AsyncSession = Depends(get_session)):
+    """Email a single-use password-reset link if the account exists.
+
+    Always returns the same generic success response regardless of whether the
+    email is on file — prevents account-enumeration via timing or response.
+    """
+    user = (await session.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    if user:
+        token = secrets.token_urlsafe(32)
+        user.password_reset_hash = hashlib.sha256(token.encode()).hexdigest()
+        user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+        await session.commit()
+        asyncio.create_task(send_password_reset_email(user.email, user.full_name, token))
+    return {"ok": True}
+
+
+@app.post("/api/auth/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest, session: AsyncSession = Depends(get_session)):
+    """Consume a password-reset token: verify + TTL check, set new password, nullify token."""
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    user = (await session.execute(
+        select(User).where(User.password_reset_hash == token_hash)
+    )).scalar_one_or_none()
+    if not user or not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+        raise HTTPException(400, "Invalid or expired reset link")
+    user.hashed_password = hash_password(body.new_password)
+    user.password_reset_hash = None
+    user.password_reset_expires = None
+    await session.commit()
+    logger.info("Password reset completed for user %d", user.id)
+    return {"ok": True}
 
 
 @app.get("/api/auth/me", response_model=UserOut)

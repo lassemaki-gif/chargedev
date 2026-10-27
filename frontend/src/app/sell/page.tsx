@@ -113,6 +113,11 @@ export default function SellLanding() {
                 {loading ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}
               </button>
             </form>
+            {mode === "login" && (
+              <a href="/forgot-password" className="mt-3 block text-ash text-sm hover:text-white transition-colors text-center">
+                Forgot password?
+              </a>
+            )}
             <button
               className="mt-4 text-ash text-sm hover:text-white transition-colors w-full text-center"
               onClick={() => setMode(mode === "register" ? "login" : "register")}
