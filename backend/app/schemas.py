@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 _SHELLY_HOST_RE = re.compile(r'^[a-z0-9-]+\.shelly\.cloud$')
 
@@ -156,7 +156,9 @@ class OcppChargePointOut(BaseModel):
 
 
 class DayAvailability(BaseModel):
-    enabled: bool = True
+    # Accept legacy `enabled` payloads from older clients; canonical name is `available`.
+    model_config = ConfigDict(populate_by_name=True)
+    available: bool = Field(True, validation_alias=AliasChoices("available", "enabled"))
     start: Optional[str] = Field(None, pattern=r'^\d{2}:\d{2}$')
     end: Optional[str] = Field(None, pattern=r'^\d{2}:\d{2}$')
 

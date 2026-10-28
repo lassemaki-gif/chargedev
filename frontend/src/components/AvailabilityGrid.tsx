@@ -1,7 +1,10 @@
 "use client";
 
-export interface DaySlot { available: boolean; start: string; end: string; }
+export interface DaySlot { available: boolean; start: string; end: string; enabled?: boolean; }
 export type WeeklyAvailability = Record<string, DaySlot>;
+
+// Legacy rows stored `enabled` instead of `available`; treat either as the on-flag.
+const isOpen = (s: DaySlot | undefined) => !!(s && (s.available ?? s.enabled));
 
 export const DEFAULT_AVAILABILITY: WeeklyAvailability = {
   mon: { available: true, start: "08:00", end: "22:00" },
@@ -38,11 +41,12 @@ export function AvailabilityGrid({ value, onChange, readonly = false }: Props) {
     <div className="grid grid-cols-7 gap-1 text-center text-xs">
       {DAYS.map(({ key, label }) => {
         const slot = value[key];
+        const open = isOpen(slot);
         return (
-          <div key={key} className={`rounded p-2 ${slot?.available ? "bg-volt/10 text-volt" : "bg-border text-ash"}`}>
+          <div key={key} className={`rounded p-2 ${open ? "bg-volt/10 text-volt" : "bg-border text-ash"}`}>
             <div className="font-semibold">{label}</div>
-            {slot?.available
-              ? <div className="mt-0.5 text-[10px]">{slot.start}–{slot.end}</div>
+            {open
+              ? <div className="mt-0.5 text-[10px]">{slot!.start}–{slot!.end}</div>
               : <div className="mt-0.5 text-[10px]">Closed</div>
             }
           </div>
@@ -55,18 +59,19 @@ export function AvailabilityGrid({ value, onChange, readonly = false }: Props) {
     <div className="space-y-2">
       {DAYS.map(({ key, label }) => {
         const slot = value[key] ?? DEFAULT_AVAILABILITY[key];
+        const open = isOpen(slot);
         return (
           <div key={key} className="flex items-center gap-3">
             <label className="flex items-center gap-2 w-24 shrink-0 cursor-pointer">
               <input
                 type="checkbox"
-                checked={slot.available}
+                checked={open}
                 onChange={(e) => set(key, "available", e.target.checked)}
                 className="accent-volt w-4 h-4"
               />
               <span className="text-sm font-medium text-white">{label}</span>
             </label>
-            {slot.available ? (
+            {open ? (
               <div className="flex items-center gap-2">
                 <input
                   type="time"
