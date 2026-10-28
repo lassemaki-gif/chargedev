@@ -446,11 +446,19 @@ function SellerDashboardInner() {
                     ) : (
                       <div className="space-y-3">
                         <p className="text-ash text-sm">Connect a Shelly device (Pro 3EM, Plus 1PM, or similar) to enable auto-start and metered sessions.</p>
+                        <div className="rounded-lg bg-red-950/50 border border-red-700 px-3 py-2.5 text-sm">
+                          <div className="font-semibold text-red-300">⚠ Electrical safety — qualified electrician only</div>
+                          <p className="text-red-200/90 mt-1 text-xs leading-relaxed">
+                            Wiring a Shelly into the EV charger supply is <span className="font-semibold">mains electrical work</span> and must be done by a <span className="font-semibold">licensed electrician</span> (in Finland: an authorised sähköurakoitsija).
+                            Do not open the charger, consumer unit, or wall socket yourself. Incorrect wiring can cause fire, electric shock, or death, and voids the charger&apos;s warranty and your home insurance.
+                            Only the fields below (Device ID, Auth key, Server) are safe to fill in yourself — the physical install is not.
+                          </p>
+                        </div>
                         <details className="rounded-lg bg-night/60 border border-border px-3 py-2 text-sm">
                           <summary className="cursor-pointer text-white font-medium">How to find these values (step-by-step)</summary>
                           <ol className="list-decimal pl-5 mt-2 space-y-1.5 text-ash">
                             <li>Install the <span className="text-white">Shelly Smart Control</span> app on your phone and add your device (Shelly Plus 1PM, Pro 1PM, or Pro 3EM work best).</li>
-                            <li>Wire the Shelly between the mains and the EV charger&apos;s supply, so toggling the relay switches charging on and off.</li>
+                            <li><span className="text-red-300 font-semibold">Have a licensed electrician</span> wire the Shelly between the mains and the EV charger&apos;s supply, so toggling the relay switches charging on and off. <span className="text-red-300">Never do this yourself.</span></li>
                             <li>Open <span className="text-white">home.shelly.cloud</span> on a laptop and sign in.</li>
                             <li><span className="text-white">Device ID</span> — click your device → <span className="text-white">Settings → Device information</span>. Copy the ID exactly (looks like <span className="font-mono text-xs">shellyplus1pm-aabbccddeeff</span>).</li>
                             <li><span className="text-white">Auth key</span> — top-right profile menu → <span className="text-white">User Settings → Authorization cloud key → Get key</span>. Copy the whole string.</li>
