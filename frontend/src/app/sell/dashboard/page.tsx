@@ -446,6 +446,18 @@ function SellerDashboardInner() {
                     ) : (
                       <div className="space-y-3">
                         <p className="text-ash text-sm">Connect a Shelly device (Pro 3EM, Plus 1PM, or similar) to enable auto-start and metered sessions.</p>
+                        <details className="rounded-lg bg-night/60 border border-border px-3 py-2 text-sm">
+                          <summary className="cursor-pointer text-white font-medium">How to find these values (step-by-step)</summary>
+                          <ol className="list-decimal pl-5 mt-2 space-y-1.5 text-ash">
+                            <li>Install the <span className="text-white">Shelly Smart Control</span> app on your phone and add your device (Shelly Plus 1PM, Pro 1PM, or Pro 3EM work best).</li>
+                            <li>Wire the Shelly between the mains and the EV charger&apos;s supply, so toggling the relay switches charging on and off.</li>
+                            <li>Open <span className="text-white">home.shelly.cloud</span> on a laptop and sign in.</li>
+                            <li><span className="text-white">Device ID</span> — click your device → <span className="text-white">Settings → Device information</span>. Copy the ID exactly (looks like <span className="font-mono text-xs">shellyplus1pm-aabbccddeeff</span>).</li>
+                            <li><span className="text-white">Auth key</span> — top-right profile menu → <span className="text-white">User Settings → Authorization cloud key → Get key</span>. Copy the whole string.</li>
+                            <li><span className="text-white">Server</span> — same User Settings page shows your server (for example <span className="font-mono text-xs">shelly-91-cloud.shelly.cloud</span>). If unsure, leave the default.</li>
+                            <li>Paste all three into the fields below and click <span className="text-white">Connect device</span>. The status badge should turn green within a few seconds.</li>
+                          </ol>
+                        </details>
                         <div className="grid sm:grid-cols-2 gap-3">
                           <div>
                             <label className="label">Device ID</label>
@@ -499,6 +511,31 @@ function SellerDashboardInner() {
                     ) : (
                       <div className="space-y-3">
                         <p className="text-ash text-sm">Register an OCPP 1.6 compatible wallbox (Easee, Zaptec, Wallbox, etc.) for auto-start and real-time energy tracking.</p>
+                        <details className="rounded-lg bg-night/60 border border-border px-3 py-2 text-sm">
+                          <summary className="cursor-pointer text-white font-medium">How to connect your wallbox (step-by-step)</summary>
+                          <ol className="list-decimal pl-5 mt-2 space-y-1.5 text-ash">
+                            <li>Pick a <span className="text-white">Charge Point ID</span> below. Any unique string works — most hosts use the wallbox serial number (for example <span className="font-mono text-xs">EASEE-ABC123</span>).</li>
+                            <li>Click <span className="text-white">Register charger</span>. ChargedEV generates a secure WebSocket URL for your wallbox.</li>
+                            <li>Open your wallbox app or installer menu and find the OCPP settings. Common paths:
+                              <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs">
+                                <li><span className="text-white">Easee</span>: Easee app → Site → Settings → <span className="text-white">Advanced → OCPP</span>.</li>
+                                <li><span className="text-white">Zaptec</span>: ZapCloud → charger → Settings → <span className="text-white">OCPP</span>.</li>
+                                <li><span className="text-white">Wallbox</span>: myWallbox portal → charger → <span className="text-white">Advanced options → OCPP</span>.</li>
+                                <li><span className="text-white">go-eCharger / Alfen / Keba</span>: installer web UI → <span className="text-white">OCPP / Backend</span>.</li>
+                              </ul>
+                            </li>
+                            <li>Set these values in the wallbox:
+                              <ul className="list-disc pl-5 mt-1 space-y-0.5 text-xs">
+                                <li><span className="text-white">OCPP version:</span> 1.6-J (JSON over WebSocket)</li>
+                                <li><span className="text-white">Central System / Backend URL:</span> paste the full WebSocket URL ChargedEV showed you (starts with <span className="font-mono">wss://</span>)</li>
+                                <li><span className="text-white">Charge Point ID / Identity:</span> the same ID you picked in step 1</li>
+                                <li><span className="text-white">Authorization:</span> none (the token is already in the URL)</li>
+                              </ul>
+                            </li>
+                            <li>Save and reboot the wallbox. The status badge above should flip from <span className="text-red-400">Offline</span> to <span className="text-blue-400">Available</span> within a minute.</li>
+                            <li>From then on, bookings auto-start charging and stop at the purchased kWh. No PIN handover needed.</li>
+                          </ol>
+                        </details>
                         <div>
                           <label className="label">Charge Point ID</label>
                           <input
