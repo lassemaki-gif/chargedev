@@ -7,6 +7,13 @@ export async function generateStaticParams() {
   return markets.map((m) => ({ country: m.id }));
 }
 
+// hreflang alternates — each country page lists all other locales so Google
+// serves the right one per region and the ~50 variants don't cannibalise.
+const LANG_ALTERNATES: Record<string, string> = {
+  ...Object.fromEntries(markets.map((mk) => [mk.locale, `https://chargedev.io/${mk.id}`])),
+  "x-default": "https://chargedev.io",
+};
+
 export async function generateMetadata({ params }: { params: Promise<{ country: string }> }): Promise<Metadata> {
   const { country } = await params;
   const m = marketById[country];
@@ -15,8 +22,16 @@ export async function generateMetadata({ params }: { params: Promise<{ country: 
   return {
     title,
     description: m.t.body,
-    alternates: { canonical: `https://chargedev.io/${m.id}` },
-    openGraph: { title, description: m.t.body, url: `https://chargedev.io/${m.id}` },
+    alternates: {
+      canonical: `https://chargedev.io/${m.id}`,
+      languages: LANG_ALTERNATES,
+    },
+    openGraph: {
+      title,
+      description: m.t.body,
+      url: `https://chargedev.io/${m.id}`,
+      locale: m.locale.replace("-", "_"),
+    },
   };
 }
 
