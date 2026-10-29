@@ -1874,9 +1874,13 @@ async def create_checkout(
         "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?token={host.webhook_token}",
         "metadata": {"booking_id": str(booking.id)},
         "profileId": host.mollie_profile_id,
+        # ChargedEV is the deemed supplier (Finnish VAT 25.5%), so the VAT is
+        # swept to our Mollie org alongside the platform fee — we remit it to
+        # Verohallinto. The host's Mollie balance receives only their net
+        # earnings (booking.seller_earnings_eur).
         "applicationFee": {
-            "amount": {"currency": "EUR", "value": f"{fee:.2f}"},
-            "description": "ChargedEV platform fee",
+            "amount": {"currency": "EUR", "value": f"{fee + vat:.2f}"},
+            "description": "ChargedEV platform fee + Finnish VAT 25.5%",
         },
     }
 
