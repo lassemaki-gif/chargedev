@@ -70,7 +70,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   fi: {
     headline1: "Lataa lähellä,",
     headline2: "ansaitse kotoa.",
-    body: "Löydä kotilatauspisteitä läheltäsi tai ansaitse rahaa vuokraamalla omaa pistorasiaasi. Varaa 20–80 kWh paketteja — PIN-pääsy, välitön vahvistus.",
+    body: "Löydä kotilatauspisteitä läheltäsi tai vuokraa omaa latausasemaasi. Varaa 20–80 kWh paketteja — PIN-pääsy, välitön vahvistus.",
     findCharger: "Etsi latauspiste",
     becomeHost: "Ryhdy isännäksi",
     pkg: "Paketit alkaen",
