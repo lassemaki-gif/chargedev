@@ -20,18 +20,17 @@ export async function generateMetadata({ params }: { params: Promise<{ country: 
   };
 }
 
-const PACKAGES = [
-  { kwh: 20, label: "Quick charge" },
-  { kwh: 40, label: "Day trip" },
-  { kwh: 60, label: "Long run" },
-  { kwh: 80, label: "Full tank" },
-];
-
 export default async function CountryPage({ params }: { params: Promise<{ country: string }> }) {
   const { country } = await params;
   const m = marketById[country];
   if (!m) notFound();
   const { t } = m;
+  const packages = [
+    { kwh: 20, label: t.pkgQuick },
+    { kwh: 40, label: t.pkgDay },
+    { kwh: 60, label: t.pkgLong },
+    { kwh: 80, label: t.pkgFull },
+  ];
 
   return (
     <div className="min-h-screen">
@@ -47,7 +46,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           </Link>
           <Link href="/sell" className="btn-volt text-sm py-1.5 px-3 sm:py-2 sm:px-4">
             <span className="hidden sm:inline">{t.becomeHost}</span>
-            <span className="sm:hidden">Host</span>
+            <span className="sm:hidden">{t.hostShort}</span>
           </Link>
         </div>
       </nav>
@@ -75,7 +74,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
         <div className="relative mt-10 sm:mt-20">
           <p className="text-ash text-xs uppercase tracking-widest mb-4">{t.pkg} {packagePrice(m, 20)}</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl">
-            {PACKAGES.map(({ kwh, label }) => (
+            {packages.map(({ kwh, label }) => (
               <div key={kwh} className="card text-center">
                 <div className="text-xl sm:text-2xl font-bold text-white">{kwh}<span className="text-sm font-normal text-ash"> kWh</span></div>
                 <div className="text-volt font-semibold mt-1">{packagePrice(m, kwh)}</div>
@@ -92,7 +91,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
         <div className="flex flex-wrap items-center gap-4 sm:gap-8 lg:gap-12">
           <div className="flex items-center gap-2.5 text-ash">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span className="text-sm">Secured by <span className="text-white font-medium">Mollie</span></span>
+            <span className="text-sm">{t.securedByBefore}<span className="text-white font-medium">Mollie</span>{t.securedByAfter}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {["Visa", "Mastercard", "Amex", "Apple Pay", "Google Pay"].map((brand) => (
@@ -105,14 +104,14 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
       {/* Trust features */}
       <section className="border-t border-border px-4 sm:px-6 lg:px-16 py-10 sm:py-16 grid sm:grid-cols-3 gap-6 sm:gap-8 max-w-3xl">
         {[
-          { icon: "🔐", t: "PIN-secured sessions", b: "Every booking generates a unique 6-digit PIN. No PIN, no charge." },
-          { icon: "⚡", t: "Instant confirmation", b: "Your PIN arrives the moment payment clears — no waiting." },
-          { icon: "🌍", t: "Available across Europe", b: "Covering EU, UK, Norway, Switzerland and Iceland." },
+          { icon: "🔐", title: t.trustPinTitle, body: t.trustPinBody },
+          { icon: "⚡", title: t.trustInstantTitle, body: t.trustInstantBody },
+          { icon: "🌍", title: t.trustEuropeTitle, body: t.trustEuropeBody },
         ].map((f) => (
-          <div key={f.t} className="flex flex-col gap-2">
+          <div key={f.title} className="flex flex-col gap-2">
             <span className="text-2xl">{f.icon}</span>
-            <div className="font-semibold text-white text-sm">{f.t}</div>
-            <div className="text-ash text-xs sm:text-sm leading-relaxed">{f.b}</div>
+            <div className="font-semibold text-white text-sm">{f.title}</div>
+            <div className="text-ash text-xs sm:text-sm leading-relaxed">{f.body}</div>
           </div>
         ))}
       </section>
@@ -121,7 +120,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
       <section className="border-t border-border px-4 sm:px-6 lg:px-16 py-12 sm:py-16 flex flex-col sm:flex-row gap-5 sm:gap-6 items-start sm:items-center justify-between">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">{t.becomeHost}</h2>
-          <p className="text-ash text-sm">Earn {packagePrice(m, 80)} per 80 kWh session. No subscription.</p>
+          <p className="text-ash text-sm">{t.earnBefore}{packagePrice(m, 80)}{t.earnAfter}</p>
         </div>
         <div className="flex gap-3 shrink-0">
           <Link href="/sell" className="btn-volt text-sm">{t.becomeHost}</Link>
@@ -142,7 +141,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           </div>
           <div className="flex items-center gap-1.5 text-ash text-xs">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span>Payments secured by <span className="text-white/70">Mollie</span></span>
+            <span>{t.paymentsSecuredByBefore}<span className="text-white/70">Mollie</span>{t.paymentsSecuredByAfter}</span>
           </div>
         </div>
       </footer>
