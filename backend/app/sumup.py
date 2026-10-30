@@ -61,18 +61,24 @@ async def create_checkout(
     checkout_reference: str,
     amount_eur: Decimal,
     description: str,
-    return_url: str,
+    redirect_url: str,
+    webhook_url: Optional[str] = None,
     customer_email: Optional[str] = None,
 ) -> dict:
-    """Create a hosted checkout and return the redirect URL.
+    """Create a hosted checkout and return the hosted-page URL.
 
-    `checkout_reference` must be unique per booking (use "booking-{id}") so a
+    `checkout_reference` must be unique per payment (e.g. "booking-{id}") so a
     double-submit from the frontend hits SumUp's idempotency rather than
     creating a second charge.
 
-    Returns a dict with at least:
+    SumUp's two URL fields are confusingly named:
+      - `redirect_url`: the "back to merchant" button on SumUp's success page.
+      - `return_url`:   the HTTP POST webhook SumUp calls on status changes.
+    We expose them under their semantic names (redirect_url, webhook_url).
+
+    Returns a dict with:
       - checkout_id: SumUp's own ID (store on the booking row)
-      - checkout_url: where to redirect the buyer
+      - checkout_url: hosted page to redirect the buyer to
     """
     if not settings.sumup_merchant_code:
         raise HTTPException(503, "SUMUP_MERCHANT_CODE is not configured")
@@ -86,11 +92,10 @@ async def create_checkout(
         # Without this flag the checkout exists but SumUp doesn't mint a hosted
         # page URL — the response comes back with no hosted_checkout_url field.
         "hosted_checkout": {"enabled": True},
-        # Optional "back to merchant" button on SumUp's success page. The buyer
-        # must click it for our verify endpoint to run; a webhook would catch
-        # the rest, but we poll on landing, which is good enough for MVP.
-        "redirect_url": return_url,
+        "redirect_url": redirect_url,
     }
+    if webhook_url:
+        body["return_url"] = webhook_url
     # customer_email is a client-level receipt convenience; SumUp ignores
     # unknown fields silently, so passing it is safe either way.
     if customer_email:

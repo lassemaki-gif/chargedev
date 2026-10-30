@@ -1320,7 +1320,8 @@ async def create_joining_fee_payment(
             checkout_reference=f"joining-fee-{current_user.id}",
             amount_eur=Decimal("1.00"),
             description="ChargedEV host joining fee",
-            return_url=f"{settings.frontend_url}/sell/dashboard?joining_fee={current_user.id}",
+            redirect_url=f"{settings.frontend_url}/sell/dashboard?joining_fee={current_user.id}",
+            webhook_url=f"{settings.backend_url}/api/webhooks/sumup",
             customer_email=current_user.email,
         )
     except Exception as exc:
@@ -1403,7 +1404,8 @@ async def create_checkout(
             checkout_reference=f"booking-{booking.id}",
             amount_eur=Decimal(f"{total:.2f}"),
             description=f"{body.package_kwh} kWh — {listing.title}",
-            return_url=f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
+            redirect_url=f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
+            webhook_url=f"{settings.backend_url}/api/webhooks/sumup",
             customer_email=current_user.email,
         )
     except HTTPException:
@@ -1652,6 +1654,103 @@ async def ocpp_unregister(
         listing.ocpp_charge_point_id = None
         await session.commit()
     return {"ok": True}
+
+
+@app.post("/api/webhooks/sumup")
+async def sumup_webhook(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """SumUp notifies us on checkout status change — payload is {event_type, id}.
+
+    No signature verification: SumUp's own guidance is to re-fetch the checkout
+    from their API with the id, which gives us the authoritative status and
+    makes a spoofed payload harmless (worst case: wasted API call).
+
+    Fail silently on any error — SumUp retries at 1, 5, 20, 120 minutes, but a
+    non-2xx response makes those retries happen, so we return 200 even when
+    something downstream couldn't be done.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"received": True})
+
+    checkout_id = payload.get("id")
+    if not checkout_id:
+        return JSONResponse({"received": True})
+
+    try:
+        result = await sumup.verify_checkout(checkout_id)
+    except Exception as exc:
+        logger.error("SumUp webhook verify failed for %s: %s", checkout_id, exc)
+        return JSONResponse({"received": True})
+
+    if result.get("status") != "PAID":
+        return JSONResponse({"received": True})
+
+    ref = (result.get("raw") or {}).get("checkout_reference", "") or ""
+
+    # Joining fee path: reference is "joining-fee-{user_id}", no booking row.
+    if ref.startswith("joining-fee-"):
+        try:
+            user_id = int(ref.split("-")[-1])
+        except (ValueError, IndexError):
+            return JSONResponse({"received": True})
+        user = await session.get(User, user_id)
+        if user and user.joining_fee_paid is False:
+            user.joining_fee_paid = True
+            await session.commit()
+            logger.info("Joining fee confirmed via SumUp webhook for user %d", user_id)
+        return JSONResponse({"received": True})
+
+    # Booking path: reference is "booking-{booking_id}".
+    if not ref.startswith("booking-"):
+        return JSONResponse({"received": True})
+    try:
+        booking_id = int(ref.split("-")[-1])
+    except (ValueError, IndexError):
+        return JSONResponse({"received": True})
+
+    b = (await session.execute(
+        select(Booking).where(Booking.id == booking_id).with_for_update()
+    )).scalar_one_or_none()
+    if not b:
+        logger.warning("SumUp webhook: booking %d not found", booking_id)
+        return JSONResponse({"received": True})
+    # Guard against race where webhook arrives for a booking whose stripe_session_id
+    # was overwritten (shouldn't happen with our idempotent reference, but be safe).
+    if b.stripe_session_id != checkout_id:
+        logger.warning(
+            "SumUp webhook: checkout_id mismatch for booking %d (stored=%s, got=%s)",
+            booking_id, b.stripe_session_id, checkout_id,
+        )
+        return JSONResponse({"received": True})
+    if b.status != BookingStatus.pending:
+        return JSONResponse({"received": True})  # already confirmed by verify endpoint
+
+    b.status = BookingStatus.confirmed
+    b.pin_code = _gen_pin()
+    await session.commit()
+    logger.info("Booking %d confirmed via SumUp webhook", b.id)
+
+    listing = await session.get(Listing, b.listing_id)
+    buyer = await session.get(User, b.buyer_id)
+    host = await session.get(User, listing.seller_id) if listing else None
+    try:
+        if buyer and listing:
+            await send_pin_email(buyer.email, buyer.full_name, b, listing)
+            if host:
+                await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
+        await _transfer_to_host(b, session)
+        if listing and listing.ocpp_charge_point_id:
+            asyncio.create_task(_ocpp_start_session(b, listing))
+        elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+            asyncio.create_task(_shelly_start_session(b, listing))
+    except Exception as exc:
+        logger.error("SumUp webhook post-confirm actions failed for booking %d: %s", b.id, exc)
+
+    return JSONResponse({"received": True})
 
 
 @app.get("/api/checkout/verify/{booking_id}")
