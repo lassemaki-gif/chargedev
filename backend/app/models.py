@@ -46,12 +46,6 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     iban: Mapped[Optional[str]] = mapped_column(String(255))  # host payout IBAN (SumUp era), Fernet-encrypted at rest
     payout_account_holder: Mapped[Optional[str]] = mapped_column(String(120))
-    stripe_account_id: Mapped[Optional[str]] = mapped_column(String(255))  # reused: stores Mollie org ID
-    mollie_access_token: Mapped[Optional[str]] = mapped_column(String(2048))
-    mollie_refresh_token: Mapped[Optional[str]] = mapped_column(String(2048))
-    mollie_oauth_nonce: Mapped[Optional[str]] = mapped_column(String(64))
-    mollie_profile_id: Mapped[Optional[str]] = mapped_column(String(40))  # pfl_… — required on OAuth-created payments
-    webhook_token: Mapped[Optional[str]] = mapped_column(String(64))  # per-host secret in Mollie webhookUrl query
     joining_fee_paid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -167,22 +161,6 @@ class OcppSession(Base):
     status: Mapped[str] = mapped_column(String(20), default="starting")  # starting|active|completed|error
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
-
-
-class PlatformMollie(Base):
-    """Singleton row storing the platform's own Mollie OAuth token.
-
-    Used for calls that require OAuth (Client Links API) rather than the
-    classic platform API key. The row is created/updated via the admin
-    self-OAuth flow at /api/admin/mollie/platform-connect.
-    """
-    __tablename__ = "platform_mollie"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    access_token: Mapped[Optional[str]] = mapped_column(String(2048))
-    refresh_token: Mapped[Optional[str]] = mapped_column(String(2048))
-    nonce: Mapped[Optional[str]] = mapped_column(String(64))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class ShellySession(Base):

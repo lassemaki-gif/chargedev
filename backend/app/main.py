@@ -34,7 +34,7 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, PlatformMollie, Review,
+    Booking, BookingStatus, Listing, PACKAGES_KWH, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from . import sumup
@@ -371,9 +371,9 @@ logger = logging.getLogger(__name__)
 
 if not settings.secret_key:
     raise RuntimeError("SECRET_KEY env var is not set. Generate one with: openssl rand -hex 32")
-if not settings.mollie_token_key:
+if not settings.encryption_key:
     raise RuntimeError(
-        "MOLLIE_TOKEN_KEY env var is not set. Generate one with: "
+        "ENCRYPTION_KEY env var is not set. Generate one with: "
         "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
     )
 
@@ -647,32 +647,25 @@ def _gen_pin() -> str:
 
 
 def _encrypt_token(token: str) -> str:
-    """Encrypt a Mollie OAuth token at rest using Fernet symmetric encryption.
-
-    Fails closed: a missing MOLLIE_TOKEN_KEY is caught at startup, so a plaintext
-    passthrough can never leave live tokens unencrypted in the database.
-    """
+    """Fernet-encrypt a secret at rest. Used for Shelly auth keys (host IBANs
+    have their own helper with permissive fallback on decrypt errors)."""
     if not token:
         return token
     from cryptography.fernet import Fernet
-    return Fernet(settings.mollie_token_key.encode()).encrypt(token.encode()).decode()
+    return Fernet(settings.encryption_key.encode()).encrypt(token.encode()).decode()
 
 
 def _decrypt_token(token: str) -> str:
-    """Decrypt a Fernet-encrypted Mollie OAuth token.
-
-    Fails loudly on decryption errors (key rotated, ciphertext corrupted, legacy
-    plaintext row) rather than returning the stored string unchanged — the old
-    silent passthrough would hand a stale ciphertext back to Mollie as a Bearer.
-    """
+    """Decrypt a Fernet-encrypted secret. Fails loudly on key rotation or
+    ciphertext corruption so a stale value doesn't silently fail downstream."""
     if not token:
         return token
     from cryptography.fernet import Fernet, InvalidToken
     try:
-        return Fernet(settings.mollie_token_key.encode()).decrypt(token.encode()).decode()
+        return Fernet(settings.encryption_key.encode()).decrypt(token.encode()).decode()
     except InvalidToken:
-        logger.error("Mollie token decrypt failed — key rotated or legacy plaintext row; reconnect required")
-        raise HTTPException(401, "Mollie not connected — please reconnect your account")
+        logger.error("Secret decrypt failed — ENCRYPTION_KEY was likely rotated")
+        raise HTTPException(500, "Server misconfiguration — contact support")
 
 
 def _decrypt_shelly_key(key: str) -> str:
@@ -686,136 +679,12 @@ def _decrypt_shelly_key(key: str) -> str:
         return key
     from cryptography.fernet import Fernet, InvalidToken
     try:
-        return Fernet(settings.mollie_token_key.encode()).decrypt(key.encode()).decode()
+        return Fernet(settings.encryption_key.encode()).decrypt(key.encode()).decode()
     except InvalidToken:
         return key  # legacy plaintext row — safe because the key still works for the Shelly API
 
 
 _encrypt_shelly_key = _encrypt_token  # same at-rest primitive
-
-
-async def _mollie(method: str, path: str, idempotency_key: Optional[str] = None, **kwargs) -> dict:
-    """Authenticated request to the Mollie REST API."""
-    headers = {"Authorization": f"Bearer {settings.mollie_api_key}"}
-    if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.request(
-            method,
-            f"https://api.mollie.com/v2{path}",
-            headers=headers,
-            **kwargs,
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def _refresh_mollie_token(user: User, session: AsyncSession) -> str:
-    """Exchange the user's refresh token for a new access token; persist both."""
-    if not user.mollie_refresh_token:
-        raise HTTPException(401, "Mollie refresh token missing — reconnect required")
-    refresh_token = _decrypt_token(user.mollie_refresh_token)
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            "https://api.mollie.com/oauth2/tokens",
-            auth=(settings.mollie_client_id, settings.mollie_client_secret),
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-        )
-    if resp.status_code >= 400:
-        logger.warning("Mollie refresh failed for user %d: %s %s", user.id, resp.status_code, _scrub(resp.text))
-        raise HTTPException(401, "Mollie refresh failed — reconnect required")
-    tokens = resp.json()
-    access_token = tokens["access_token"]
-    new_refresh = tokens.get("refresh_token", refresh_token)
-    user.mollie_access_token = _encrypt_token(access_token)
-    user.mollie_refresh_token = _encrypt_token(new_refresh)
-    await session.commit()
-    logger.info("Mollie token refreshed for user %d", user.id)
-    return access_token
-
-
-async def _mollie_user_request(
-    user: User, session: AsyncSession, method: str, path: str,
-    idempotency_key: Optional[str] = None, **kwargs,
-) -> httpx.Response:
-    """Call Mollie with the seller's access token; refresh + retry on an invalid-token response.
-
-    Mollie returns 400 "Invalid Authorization header" (not 401) for expired or
-    invalid access tokens, so we retry on both.
-    """
-    if not user.mollie_access_token:
-        raise HTTPException(401, "Mollie not connected")
-    access_token = _decrypt_token(user.mollie_access_token)
-    url = f"https://api.mollie.com/v2{path}"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    if idempotency_key:
-        headers["Idempotency-Key"] = idempotency_key
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.request(method, url, headers=headers, **kwargs)
-        if _is_mollie_auth_error(resp):
-            access_token = await _refresh_mollie_token(user, session)
-            headers["Authorization"] = f"Bearer {access_token}"
-            resp = await client.request(method, url, headers=headers, **kwargs)
-        resp.raise_for_status()
-        return resp
-
-
-async def _refresh_platform_mollie_token(row: PlatformMollie, session: AsyncSession) -> str:
-    """Refresh the platform's own OAuth access token via its refresh token."""
-    if not row.refresh_token:
-        raise HTTPException(503, "Platform Mollie OAuth not configured")
-    refresh_token = _decrypt_token(row.refresh_token)
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            "https://api.mollie.com/oauth2/tokens",
-            auth=(settings.mollie_client_id, settings.mollie_client_secret),
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-        )
-    if resp.status_code >= 400:
-        logger.warning("Platform Mollie refresh failed: %s %s", resp.status_code, _scrub(resp.text))
-        raise HTTPException(503, "Platform Mollie refresh failed")
-    tokens = resp.json()
-    access_token = tokens["access_token"]
-    new_refresh = tokens.get("refresh_token", refresh_token)
-    row.access_token = _encrypt_token(access_token)
-    row.refresh_token = _encrypt_token(new_refresh)
-    await session.commit()
-    logger.info("Platform Mollie token refreshed")
-    return access_token
-
-
-async def _platform_mollie_request(
-    session: AsyncSession, method: str, path: str, **kwargs,
-) -> httpx.Response:
-    """Call Mollie using the platform's own OAuth token; refresh + retry on auth error."""
-    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
-    if not row or not row.access_token:
-        raise HTTPException(503, "Platform Mollie OAuth not configured. Run /api/admin/mollie/platform-connect.")
-    access_token = _decrypt_token(row.access_token)
-    url = f"https://api.mollie.com/v2{path}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.request(
-            method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
-        )
-        if _is_mollie_auth_error(resp):
-            access_token = await _refresh_platform_mollie_token(row, session)
-            resp = await client.request(
-                method, url, headers={"Authorization": f"Bearer {access_token}"}, **kwargs,
-            )
-        resp.raise_for_status()
-        return resp
-
-
-def _is_mollie_auth_error(resp: httpx.Response) -> bool:
-    """True if a Mollie response signals an invalid/expired access token."""
-    if resp.status_code == 401:
-        return True
-    if resp.status_code == 400:
-        try:
-            return "authorization" in (resp.json().get("detail", "")).lower()
-        except Exception:
-            return False
-    return False
 
 
 def _booking_out(b: Booking, show_pin: bool = False) -> BookingOut:
@@ -853,7 +722,6 @@ async def _transfer_to_host(booking: Booking, session: AsyncSession) -> None:
 @app.get("/api/health")
 async def health() -> dict:
     return {"ok": True}
-
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -1068,7 +936,6 @@ async def seller_earnings(
         stripe_account_id=None,
         joining_fee_paid=current_user.joining_fee_paid,
         payout_account_set=bool(current_user.iban and current_user.payout_account_holder),
-        mollie_connected=False,  # legacy; Mollie Connect is retired
     )
 
 
@@ -1083,15 +950,15 @@ def _normalize_iban(raw: str) -> str:
 def _encrypt_iban(iban: str) -> str:
     """IBAN is at-rest sensitive — encrypt with the same Fernet key as other secrets."""
     from cryptography.fernet import Fernet
-    if not settings.mollie_token_key:
+    if not settings.encryption_key:
         raise HTTPException(503, "Encryption key not configured")
-    return Fernet(settings.mollie_token_key.encode()).encrypt(iban.encode()).decode()
+    return Fernet(settings.encryption_key.encode()).encrypt(iban.encode()).decode()
 
 
 def _decrypt_iban(ciphertext: str) -> str:
     from cryptography.fernet import Fernet, InvalidToken
     try:
-        return Fernet(settings.mollie_token_key.encode()).decrypt(ciphertext.encode()).decode()
+        return Fernet(settings.encryption_key.encode()).decrypt(ciphertext.encode()).decode()
     except InvalidToken:
         # Legacy plaintext row (pre-SumUp cleanup wiped these, but a backup restore could bring one back).
         return ciphertext
@@ -1411,7 +1278,7 @@ async def admin_confirm_booking(
 ):
     """Admin fallback: confirm a pending booking and mint a PIN.
 
-    Verifies the Mollie payment is actually paid before confirming, so a phished
+    Verifies the SumUp checkout is actually paid before confirming, so a phished
     or XSS'd admin session can't hand out free charging. Pass ?force=true to
     override (logged as a warning for audit).
     """
@@ -1423,19 +1290,14 @@ async def admin_confirm_booking(
 
     if not force:
         if not b.stripe_session_id:
-            raise HTTPException(400, "Booking has no Mollie payment ID — pass ?force=true if you really mean to confirm without payment")
-        listing = await session.get(Listing, b.listing_id)
-        host = await session.get(User, listing.seller_id) if listing else None
-        if not host or not host.mollie_access_token:
-            raise HTTPException(400, "Host has no Mollie connection — cannot verify payment")
+            raise HTTPException(400, "Booking has no SumUp checkout ID — pass ?force=true to override")
         try:
-            resp = await _mollie_user_request(host, session, "GET", f"/payments/{b.stripe_session_id}")
-            payment = resp.json()
+            result = await sumup.verify_checkout(b.stripe_session_id)
         except Exception as exc:
-            logger.error("Admin confirm: Mollie fetch failed for booking %d: %s", b.id, exc)
-            raise HTTPException(502, "Could not verify payment with Mollie")
-        if payment.get("status") != "paid":
-            raise HTTPException(409, f"Mollie payment status is {payment.get('status')} — not confirming")
+            logger.error("Admin confirm: SumUp fetch failed for booking %d: %s", b.id, exc)
+            raise HTTPException(502, "Could not verify payment with SumUp")
+        if result.get("status") != "PAID":
+            raise HTTPException(409, f"SumUp checkout status is {result.get('status')} — not confirming")
     else:
         logger.warning("Admin FORCE-confirm booking %d — payment NOT verified", b.id)
 
@@ -1443,81 +1305,6 @@ async def admin_confirm_booking(
     b.pin_code = _gen_pin()
     await session.commit()
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id, "forced": force}
-
-
-# ── Admin: platform Mollie self-OAuth (one-time setup) ────────────────────────
-
-PLATFORM_MOLLIE_SCOPE = "clients.write organizations.read"
-
-
-@app.get("/api/admin/mollie/platform-connect")
-async def platform_mollie_connect(
-    _: User = Depends(require_role("admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """Start the platform self-OAuth flow (one-time setup for Client Links API)."""
-    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
-    if row is None:
-        row = PlatformMollie(id=1)
-        session.add(row)
-    nonce = secrets.token_hex(16)
-    row.nonce = nonce
-    await session.commit()
-
-    state = jose_jwt.encode(
-        {"platform": True, "nonce": nonce, "typ": "oauth_state",
-         "exp": datetime.utcnow().timestamp() + 600},
-        settings.secret_key, algorithm="HS256",
-    )
-    # Mollie allows only one redirect URI per app; reuse the registered seller
-    # callback, which dispatches on payload["platform"] in the state JWT.
-    params = urlencode({
-        "client_id": settings.mollie_client_id,
-        "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
-        "response_type": "code",
-        "scope": PLATFORM_MOLLIE_SCOPE,
-        "state": state,
-    })
-    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{params}"}
-
-
-async def _handle_platform_oauth_callback(
-    code: str, payload: dict, session: AsyncSession,
-) -> RedirectResponse:
-    """Platform self-OAuth leg of the shared callback — stores clients.write token."""
-    state_nonce = payload.get("nonce")
-    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
-    if not row or not row.nonce or not secrets.compare_digest(row.nonce, state_nonce or ""):
-        raise HTTPException(400, "Invalid or expired OAuth state")
-    row.nonce = None
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        token_resp = await client.post(
-            "https://api.mollie.com/oauth2/tokens",
-            auth=(settings.mollie_client_id, settings.mollie_client_secret),
-            data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
-            },
-        )
-        token_resp.raise_for_status()
-        tokens = token_resp.json()
-
-    row.access_token = _encrypt_token(tokens["access_token"])
-    row.refresh_token = _encrypt_token(tokens.get("refresh_token", ""))
-    await session.commit()
-    logger.info("Platform Mollie OAuth connected")
-    return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?platform_mollie=connected")
-
-
-@app.get("/api/admin/mollie/platform-status")
-async def platform_mollie_status(
-    _: User = Depends(require_role("admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    row = (await session.execute(select(PlatformMollie).where(PlatformMollie.id == 1))).scalar_one_or_none()
-    return {"connected": bool(row and row.access_token)}
 
 
 # ── Host joining fee ─────────────────────────────────────────────────────────
@@ -1529,19 +1316,19 @@ async def create_joining_fee_payment(
     if current_user.joining_fee_paid is not False:
         return {"status": "already_paid"}
     try:
-        payment = await _mollie("POST", "/payments",
-            idempotency_key=f"joining-fee-{current_user.id}",
-            json={
-                "amount": {"currency": "EUR", "value": "1.00"},
-                "description": "ChargedEV host joining fee",
-                "redirectUrl": f"{settings.frontend_url}/sell/dashboard",
-                "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?webhook_secret={settings.mollie_webhook_secret}",
-                "metadata": {"type": "joining_fee", "user_id": str(current_user.id)},
-            })
+        checkout = await sumup.create_checkout(
+            checkout_reference=f"joining-fee-{current_user.id}",
+            amount_eur=Decimal("1.00"),
+            description="ChargedEV host joining fee",
+            return_url=f"{settings.frontend_url}/sell/dashboard?joining_fee={current_user.id}",
+            customer_email=current_user.email,
+        )
     except Exception as exc:
-        logger.error("Mollie joining fee payment creation failed: %s", exc)
+        logger.error("Joining fee checkout creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
-    return {"checkout_url": payment["_links"]["checkout"]["href"], "payment_id": payment["id"]}
+    if not checkout.get("checkout_id") or not checkout.get("checkout_url"):
+        raise HTTPException(502, "Payment provider returned an unexpected response.")
+    return {"checkout_url": checkout["checkout_url"], "payment_id": checkout["checkout_id"]}
 
 
 @app.get("/api/seller/joining-fee/verify")
@@ -1553,317 +1340,24 @@ async def verify_joining_fee(
     if current_user.joining_fee_paid:
         return {"paid": True}
     try:
-        payment = await _mollie("GET", f"/payments/{payment_id}")
+        result = await sumup.verify_checkout(payment_id)
     except Exception as exc:
-        logger.error("Mollie joining fee verify failed: %s", exc)
+        logger.error("Joining fee verify failed: %s", exc)
         raise HTTPException(502, "Could not verify payment")
-    metadata = payment.get("metadata") or {}
-    if str(metadata.get("user_id")) != str(current_user.id):
+    # The checkout_reference is "joining-fee-{user_id}"; cross-check so a user
+    # can't verify a different user's checkout.
+    expected_ref = f"joining-fee-{current_user.id}"
+    actual_ref = (result.get("raw") or {}).get("checkout_reference")
+    if actual_ref != expected_ref:
         raise HTTPException(403, "Payment does not belong to this account")
-    if payment.get("status") == "paid":
+    if result.get("status") == "PAID":
         current_user.joining_fee_paid = True
         await session.commit()
         logger.info("Joining fee paid by user %d", current_user.id)
     return {"paid": current_user.joining_fee_paid is True}
 
 
-# ── Mollie Connect (seller payout accounts) ───────────────────────────────────
-
-MOLLIE_OAUTH_SCOPE = (
-    "payments.read payments.write organizations.read profiles.read "
-    "onboarding.read settlements.read balances.read"
-)
-
-
-def _split_name(full_name: str) -> tuple[str, str]:
-    parts = (full_name or "").strip().split(None, 1)
-    if len(parts) == 2:
-        return parts[0], parts[1]
-    return (parts[0] if parts else "User"), (parts[0] if parts else "User")
-
-
-@app.get("/api/seller/mollie/connect")
-async def mollie_connect_redirect(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """Return a Mollie onboarding URL for the seller to open.
-
-    Mollie recommends co-branded onboarding via the Client Links API for new
-    merchants (prefills signup data, reduces drop-off). We create a client link
-    with the seller's details prefilled, then append our OAuth parameters so a
-    single redirect handles both signup and consent. Falls back to the raw
-    authorize URL if client-link creation fails.
-    """
-    # Generate single-use nonce to prevent OAuth callback injection (MC-1/MC-2)
-    nonce = secrets.token_hex(16)
-    current_user.mollie_oauth_nonce = nonce
-    await session.commit()
-
-    state = jose_jwt.encode(
-        {"sub": str(current_user.id), "role": current_user.role, "nonce": nonce,
-         "typ": "oauth_state",
-         "exp": datetime.utcnow().timestamp() + 600},
-        settings.secret_key, algorithm="HS256",
-    )
-    oauth_params = {
-        "client_id": settings.mollie_client_id,
-        "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
-        "response_type": "code",
-        "scope": MOLLIE_OAUTH_SCOPE,
-        "state": state,
-    }
-
-    given, family = _split_name(current_user.full_name)
-    client_link_body = {
-        "owner": {
-            "email": current_user.email,
-            "givenName": given,
-            "familyName": family,
-            "locale": "fi_FI",
-        },
-        "name": current_user.full_name or current_user.email.split("@")[0],
-        "address": {"country": "FI"},
-    }
-    # Mollie's POST /v2/client-links requires a dashboard-created Advanced
-    # Access Token (prefix `access_`) with the clients.write permission; OAuth
-    # tokens are rejected with 403 regardless of requested scope.
-    if settings.mollie_advanced_access_token:
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    "https://api.mollie.com/v2/client-links",
-                    headers={"Authorization": f"Bearer {settings.mollie_advanced_access_token}"},
-                    json=client_link_body,
-                )
-                resp.raise_for_status()
-            link = resp.json()
-            base_url = link["_links"]["clientLink"]["href"]
-            return {"auth_url": f"{base_url}?{urlencode(oauth_params)}"}
-        except httpx.HTTPStatusError as exc:
-            logger.warning("Client Link creation failed (%s), falling back to raw OAuth: %s",
-                           exc.response.status_code, _scrub(exc.response.text))
-        except Exception as exc:
-            logger.warning("Client Link creation failed, falling back to raw OAuth: %s", exc)
-    return {"auth_url": f"https://my.mollie.com/oauth2/authorize?{urlencode(oauth_params)}"}
-
-
-@app.get("/api/seller/mollie/callback")
-async def mollie_connect_callback(
-    code: Optional[str] = None,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
-    session: AsyncSession = Depends(get_session),
-):
-    """Handle Mollie OAuth callback for both seller connect and platform self-OAuth.
-
-    Mollie allows only one registered redirect URI per app, so both flows share
-    this endpoint and dispatch based on `payload["platform"]` in the state JWT.
-    """
-    if error:
-        logger.info("Mollie OAuth denied by user: %s", error)
-        return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=denied")
-    if not code or not state:
-        raise HTTPException(400, "Missing code or state")
-
-    try:
-        payload = jose_jwt.decode(state, settings.secret_key, algorithms=["HS256"])
-    except (JWTError, KeyError, ValueError):
-        raise HTTPException(400, "Invalid state parameter")
-
-    # Dispatch: platform self-OAuth vs seller connect
-    if payload.get("platform"):
-        return await _handle_platform_oauth_callback(code, payload, session)
-
-    try:
-        user_id = int(payload["sub"])
-        state_nonce = payload.get("nonce")
-    except (KeyError, ValueError):
-        raise HTTPException(400, "Invalid state parameter")
-
-    # Verify and consume the single-use nonce (MC-1/MC-2)
-    user = await session.get(User, user_id)
-    if not user or not user.mollie_oauth_nonce or not secrets.compare_digest(user.mollie_oauth_nonce, state_nonce or ""):
-        logger.warning("Mollie OAuth: invalid or reused nonce for user %d", user_id)
-        raise HTTPException(400, "Invalid or expired OAuth state")
-    user.mollie_oauth_nonce = None  # Consume nonce — single use only
-    await session.commit()
-
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        token_resp = await client.post(
-            "https://api.mollie.com/oauth2/tokens",
-            data={
-                "grant_type": "authorization_code",
-                "client_id": settings.mollie_client_id,
-                "client_secret": settings.mollie_client_secret,
-                "code": code,
-                "redirect_uri": f"{settings.backend_url}/api/seller/mollie/callback",
-            },
-        )
-        token_resp.raise_for_status()
-        tokens = token_resp.json()
-        access_token = tokens["access_token"]
-        refresh_token = tokens.get("refresh_token", "")
-
-        org_resp = await client.get(
-            "https://api.mollie.com/v2/organizations/me",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        org_resp.raise_for_status()
-        org = org_resp.json()
-
-        # OAuth-created payments need an explicit profileId. /profiles/me is
-        # API-key-scoped (one key = one profile), so for OAuth we list all
-        # profiles on the org and take the first (= the primary).
-        profile_id: Optional[str] = None
-        try:
-            prof_resp = await client.get(
-                "https://api.mollie.com/v2/profiles",
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            prof_resp.raise_for_status()
-            profiles = prof_resp.json().get("_embedded", {}).get("profiles", [])
-            if profiles:
-                profile_id = profiles[0].get("id")
-        except Exception as exc:
-            logger.warning("Could not fetch Mollie profiles for user %d: %s", user_id, exc)
-
-    user.stripe_account_id = org["id"]          # Mollie org ID
-    user.mollie_access_token = _encrypt_token(access_token)   # MC-3: encrypted at rest
-    user.mollie_refresh_token = _encrypt_token(refresh_token)
-    user.mollie_profile_id = profile_id
-    # Per-host webhook token — stops the shared mollie_webhook_secret from
-    # being read by every onboarded host in their Mollie dashboard.
-    if not user.webhook_token:
-        user.webhook_token = secrets.token_urlsafe(32)
-    await session.commit()
-    logger.info("Mollie Connect completed for user %d, org %s", user_id, org["id"])
-    return RedirectResponse(f"{settings.frontend_url}/sell/dashboard?mollie=connected")
-
-
-@app.get("/api/seller/mollie/status")
-async def mollie_connect_status(current_user: User = Depends(require_role("seller", "admin"))):
-    return {"connected": bool(current_user.stripe_account_id), "organization_id": current_user.stripe_account_id}
-
-
-@app.get("/api/seller/mollie/onboarding")
-async def mollie_onboarding_status(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """Check the connected seller's Mollie onboarding status using their access token."""
-    if not current_user.mollie_access_token:
-        return {"status": "not_connected", "can_receive_payments": False}
-    try:
-        resp = await _mollie_user_request(current_user, session, "GET", "/onboarding/me")
-        data = resp.json()
-        status = data.get("status", "unknown")
-        return {
-            "status": status,               # needs-data | in-progress | completed
-            "can_receive_payments": status == "completed",
-            "needs_data": data.get("canReceivePayments") is False,
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Mollie onboarding check failed: %s", exc)
-        return {"status": "unknown", "can_receive_payments": False}
-
-
-@app.get("/api/seller/mollie/balance")
-async def mollie_balance(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """Return the seller's primary Mollie balance (available + pending)."""
-    if not current_user.mollie_access_token:
-        return {"status": "not_connected"}
-    try:
-        resp = await _mollie_user_request(current_user, session, "GET", "/balances/primary")
-        data = resp.json()
-        return {
-            "status": "ok",
-            "currency": data.get("currency"),
-            "available": data.get("availableAmount", {}).get("value"),
-            "pending": data.get("pendingAmount", {}).get("value"),
-            "balance_status": data.get("status"),
-        }
-    except HTTPException:
-        raise
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 403:
-            return {"status": "scope_missing", "detail": "Reconnect Mollie to enable balance view"}
-        logger.error("Mollie balance fetch failed: %s", _scrub(exc.response.text))
-        return {"status": "error"}
-    except Exception as exc:
-        logger.error("Mollie balance fetch failed: %s", exc)
-        return {"status": "error"}
-
-
-@app.get("/api/seller/mollie/settlements")
-async def mollie_settlements(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    """List the seller's recent Mollie settlements."""
-    if not current_user.mollie_access_token:
-        return {"status": "not_connected", "settlements": []}
-    try:
-        resp = await _mollie_user_request(current_user, session, "GET", "/settlements?limit=10")
-        data = resp.json()
-        items = data.get("_embedded", {}).get("settlements", [])
-        return {
-            "status": "ok",
-            "settlements": [
-                {
-                    "id": s.get("id"),
-                    "reference": s.get("reference"),
-                    "created_at": s.get("createdAt"),
-                    "settled_at": s.get("settledAt"),
-                    "status": s.get("status"),
-                    "amount": s.get("amount", {}).get("value"),
-                    "currency": s.get("amount", {}).get("currency"),
-                }
-                for s in items
-            ],
-        }
-    except HTTPException:
-        raise
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 403:
-            return {"status": "scope_missing", "settlements": []}
-        logger.error("Mollie settlements fetch failed: %s", _scrub(exc.response.text))
-        return {"status": "error", "settlements": []}
-    except Exception as exc:
-        logger.error("Mollie settlements fetch failed: %s", exc)
-        return {"status": "error", "settlements": []}
-
-
-@app.delete("/api/seller/mollie/disconnect")
-async def mollie_disconnect(
-    current_user: User = Depends(require_role("seller", "admin")),
-    session: AsyncSession = Depends(get_session),
-):
-    current_user.stripe_account_id = None
-    current_user.mollie_access_token = None
-    current_user.mollie_refresh_token = None
-    await session.commit()
-    return {"ok": True}
-
-
-# ── Payout account (legacy stubs) ─────────────────────────────────────────────
-
-@app.post("/api/seller/stripe/onboard")
-async def stripe_onboard(_: User = Depends(require_role("seller", "admin"))):
-    raise HTTPException(503, "Use Mollie Connect instead.")
-
-
-@app.get("/api/seller/stripe/status")
-async def stripe_status(_: User = Depends(require_role("seller", "admin"))):
-    return {"onboarded": False, "charges_enabled": False, "payouts_enabled": False, "account_id": None}
-
-
-# ── Mollie checkout ───────────────────────────────────────────────────────────
+# ── SumUp checkout ────────────────────────────────────────────────────────────
 
 @app.post("/api/checkout")
 async def create_checkout(
@@ -2158,115 +1652,6 @@ async def ocpp_unregister(
         listing.ocpp_charge_point_id = None
         await session.commit()
     return {"ok": True}
-
-
-@app.post("/api/webhooks/mollie")
-async def mollie_webhook(
-    request: Request,
-    id: Optional[str] = Form(None),
-    session: AsyncSession = Depends(get_session),
-):
-    """Mollie sends a form POST with the payment ID; we fetch the payment to verify status."""
-    # Accept either `?token=<host.webhook_token>` (booking payments) or
-    # `?webhook_secret=<platform>` (legacy / joining-fee payments). The token
-    # that lives in Mollie's webhookUrl field is readable by whichever account
-    # owns the payment, so hosts only ever learn their own per-user token —
-    # never the platform-wide secret, which stays scoped to joining fees.
-    incoming_token = request.query_params.get("token", "")
-    incoming_secret = request.query_params.get("webhook_secret", "")
-
-    payment_id = id
-    if not payment_id:
-        # Some Mollie test calls send an empty body
-        return JSONResponse({"received": True})
-
-    logger.info("Mollie webhook received: payment_id=%s", payment_id)
-
-    # Look up booking first so we know which token can read this payment:
-    # booking payments live on the host's org (Connect for Platforms); joining
-    # fees have no booking row and live on the platform.
-    b = (await session.execute(
-        select(Booking).where(Booking.stripe_session_id == payment_id).with_for_update()
-    )).scalar_one_or_none()
-
-    # Authenticate the webhook against the right secret for this payment.
-    if b:
-        listing = await session.get(Listing, b.listing_id)
-        host = await session.get(User, listing.seller_id) if listing else None
-        expected = host.webhook_token if host else None
-        if not expected or not incoming_token or not secrets.compare_digest(incoming_token, expected):
-            logger.warning("Mollie webhook: bad per-host token for booking %d", b.id)
-            raise HTTPException(401, "Invalid webhook token")
-    else:
-        expected = settings.mollie_webhook_secret
-        if not expected or not incoming_secret or not secrets.compare_digest(incoming_secret, expected):
-            logger.warning("Mollie webhook: bad platform secret (payment_id=%s not a booking)", payment_id)
-            raise HTTPException(401, "Invalid webhook secret")
-
-    try:
-        if b:
-            # listing + host already resolved during the auth check above
-            if not host or not host.mollie_access_token:
-                logger.error("Booking %d: host has no Mollie connection — cannot verify payment", b.id)
-                return JSONResponse({"received": True})
-            resp = await _mollie_user_request(host, session, "GET", f"/payments/{payment_id}")
-            payment = resp.json()
-        else:
-            payment = await _mollie("GET", f"/payments/{payment_id}")
-    except Exception as exc:
-        logger.error("Could not fetch Mollie payment %s: %s", payment_id, exc)
-        return JSONResponse({"received": True})
-
-    if payment.get("status") != "paid":
-        logger.info("Mollie payment %s status=%s — ignoring", payment_id, payment.get("status"))
-        return JSONResponse({"received": True})
-
-    metadata = payment.get("metadata") or {}
-
-    # Handle joining fee payments (no booking row — payment is on the platform)
-    if metadata.get("type") == "joining_fee":
-        user_id = int(metadata.get("user_id", 0))
-        if user_id:
-            host = await session.get(User, user_id)
-            if host and not host.joining_fee_paid:
-                host.joining_fee_paid = True
-                await session.commit()
-                logger.info("Joining fee confirmed via webhook for user %d", user_id)
-        return JSONResponse({"received": True})
-
-    # Fallback booking lookup via metadata (rare race: webhook before commit)
-    if not b:
-        booking_id = int(metadata.get("booking_id", 0))
-        if booking_id:
-            b = await session.get(Booking, booking_id)
-            if b and b.stripe_session_id != payment_id:
-                logger.warning("Booking %d payment ID mismatch — ignoring", booking_id)
-                b = None
-
-    try:
-        if b and b.status == BookingStatus.pending:
-            b.status = BookingStatus.confirmed
-            b.pin_code = _gen_pin()
-            await session.commit()
-            logger.info("Booking %d confirmed via Mollie webhook", b.id)
-            buyer = await session.get(User, b.buyer_id)
-            listing = await session.get(Listing, b.listing_id)
-            host = await session.get(User, listing.seller_id) if listing else None
-            if buyer and listing:
-                await send_pin_email(buyer.email, buyer.full_name, b, listing)
-                if host:
-                    await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
-            await _transfer_to_host(b, session)
-            if listing and listing.ocpp_charge_point_id:
-                asyncio.create_task(_ocpp_start_session(b, listing))
-            elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
-                asyncio.create_task(_shelly_start_session(b, listing))
-        else:
-            logger.warning("Mollie webhook: booking not found or already processed for payment %s", payment_id)
-    except Exception as exc:
-        logger.error("Mollie webhook handler error: %s", _scrub(str(exc)), exc_info=True)
-
-    return JSONResponse({"received": True})
 
 
 @app.get("/api/checkout/verify/{booking_id}")

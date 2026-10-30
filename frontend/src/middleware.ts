@@ -30,7 +30,7 @@ export function middleware(req: NextRequest) {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://chargedev-production.up.railway.app https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com https://api.mollie.com",
+    "connect-src 'self' https://chargedev-production.up.railway.app https://*.googleapis.com https://vitals.vercel-insights.com https://va.vercel-scripts.com",
     "frame-ancestors 'none'",
   ].join('; ');
 

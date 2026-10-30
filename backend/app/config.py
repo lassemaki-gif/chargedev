@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,12 +22,13 @@ class Settings(BaseSettings):
     platform_fee_pct: float = 0.20  # 20%
     default_price_per_kwh: float = 0.30  # EUR
 
-    mollie_api_key: str = ""
-    mollie_webhook_secret: str = ""
-    mollie_client_id: str = ""
-    mollie_client_secret: str = ""
-    mollie_token_key: str = ""  # Fernet key for encrypting OAuth tokens at rest
-    mollie_advanced_access_token: str = ""  # access_… token with clients.write for /client-links
+    # Fernet key for at-rest encryption (host IBANs, Shelly auth keys).
+    # Previously named MOLLIE_TOKEN_KEY — kept as a fallback env name so an
+    # existing deploy doesn't break when it hasn't rotated the var yet.
+    encryption_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("ENCRYPTION_KEY", "MOLLIE_TOKEN_KEY"),
+    )
 
     # SumUp Online Payments API (single-merchant acquiring; no sub-merchant OAuth).
     # All checkouts settle to ChargedEV's own merchant account; hosts are paid

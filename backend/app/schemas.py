@@ -235,8 +235,6 @@ class SellerEarnings(BaseModel):
     # True once the host has saved an IBAN + account holder. Payouts run as a
     # weekly SEPA batch from ChargedEV's bank; without this, we can't pay them.
     payout_account_set: bool = False
-    # Legacy field — kept so the current frontend keeps rendering. False from now on.
-    mollie_connected: bool = False
 
 
 class PayoutAccountIn(BaseModel):

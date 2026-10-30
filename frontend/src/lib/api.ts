@@ -219,7 +219,6 @@ export interface SellerEarnings {
   stripe_account_id: string | null;
   joining_fee_paid: boolean | null;
   payout_account_set: boolean;
-  mollie_connected: boolean;  // legacy, always false
 }
 
 export interface PayoutAccount {

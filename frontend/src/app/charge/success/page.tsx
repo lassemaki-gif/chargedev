@@ -26,7 +26,7 @@ function SuccessContent() {
     if (!bookingId) { router.push("/charge"); return; }
     const confirm = async () => {
       try {
-        // verify endpoint confirms payment with Mollie directly — no webhook needed
+        // verify endpoint confirms payment with SumUp directly — webhook is a backup, not required
         const b = await api.verifyCheckout(bookingId);
         if (b.pin_code) {
           setBooking(b);
