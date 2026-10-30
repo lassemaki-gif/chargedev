@@ -178,3 +178,29 @@ class ShellySession(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | error
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+class HostPayout(Base):
+    """One row per host per SEPA batch.
+
+    Admin triggers batch creation, which aggregates every completed-and-unpaid
+    booking per host into one HostPayout row and marks those booking IDs. The
+    CSV export reads this table. Marking the batch paid flips both the row and
+    the included booking.paid_out flag.
+    """
+    __tablename__ = "host_payouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    host_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    net_eur: Mapped[float] = mapped_column(Float, nullable=False)
+    booking_ids_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON array of booking IDs in the batch
+    # Snapshot IBAN + holder at generation time so a later IBAN change doesn't
+    # retroactively rewrite the record of where we sent the money.
+    iban_last4: Mapped[Optional[str]] = mapped_column(String(4))
+    account_holder: Mapped[Optional[str]] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending | paid | cancelled
+    sepa_reference: Mapped[Optional[str]] = mapped_column(String(64))  # user-entered after bank upload
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

@@ -67,6 +67,22 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     # need to collect each host's IBAN again for weekly SEPA batches.
                     "ALTER TABLE users ALTER COLUMN iban TYPE VARCHAR(255)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_account_holder VARCHAR(120)",
+                    """CREATE TABLE IF NOT EXISTS host_payouts (
+                        id SERIAL PRIMARY KEY,
+                        host_id INTEGER NOT NULL REFERENCES users(id),
+                        period_start TIMESTAMP NOT NULL,
+                        period_end TIMESTAMP NOT NULL,
+                        net_eur FLOAT NOT NULL,
+                        booking_ids_json TEXT NOT NULL,
+                        iban_last4 VARCHAR(4),
+                        account_holder VARCHAR(120),
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        sepa_reference VARCHAR(64),
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        paid_at TIMESTAMP
+                    )""",
+                    "CREATE INDEX IF NOT EXISTS ix_host_payouts_host_id ON host_payouts (host_id)",
+                    "CREATE INDEX IF NOT EXISTS ix_host_payouts_status ON host_payouts (status)",
                     "ALTER TABLE listings ADD COLUMN IF NOT EXISTS ocpp_charge_point_id VARCHAR(255)",
                     "CREATE UNIQUE INDEX IF NOT EXISTS ix_listings_ocpp_charge_point_id ON listings (ocpp_charge_point_id) WHERE ocpp_charge_point_id IS NOT NULL",
                     """CREATE TABLE IF NOT EXISTS ocpp_charge_points (

@@ -250,6 +250,38 @@ class PayoutAccountOut(BaseModel):
     is_set: bool = False
 
 
+class PendingPayoutHost(BaseModel):
+    host_id: int
+    host_name: str
+    host_email: str
+    iban_set: bool
+    account_holder: Optional[str] = None
+    booking_count: int
+    net_eur: float
+    earliest: datetime
+    latest: datetime
+
+
+class HostPayoutOut(BaseModel):
+    id: int
+    host_id: int
+    host_name: Optional[str] = None
+    period_start: datetime
+    period_end: datetime
+    net_eur: float
+    booking_count: int
+    iban_last4: Optional[str] = None
+    account_holder: Optional[str] = None
+    status: str
+    sepa_reference: Optional[str] = None
+    created_at: datetime
+    paid_at: Optional[datetime] = None
+
+
+class MarkPaidIn(BaseModel):
+    sepa_reference: Optional[str] = None
+
+
 class StripeOnboardResponse(BaseModel):
     url: str
 

@@ -16,7 +16,7 @@ import httpx
 import resend
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import func, select
@@ -34,16 +34,16 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, Listing, PACKAGES_KWH, Review,
+    Booking, BookingStatus, HostPayout, Listing, PACKAGES_KWH, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
-from . import sumup
+from . import payouts, sumup
 from .schemas import (
-    BookingCreate, BookingOut, ForgotPasswordRequest, ListingCreate, ListingOut,
-    LoginRequest, OcppChargePointOut, OcppRegisterRequest, PayoutAccountIn, PayoutAccountOut,
-    PlatformStats, ProfileUpdate, RegisterRequest, ResetPasswordRequest, ReviewCreate,
-    ReviewOut, SellerEarnings, ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut,
-    WeeklyAvailabilitySchema,
+    BookingCreate, BookingOut, ForgotPasswordRequest, HostPayoutOut, ListingCreate,
+    ListingOut, LoginRequest, MarkPaidIn, OcppChargePointOut, OcppRegisterRequest,
+    PayoutAccountIn, PayoutAccountOut, PlatformStats, ProfileUpdate, RegisterRequest,
+    ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings, ShellyConfigRequest,
+    ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
 )
 
 
@@ -1305,6 +1305,138 @@ async def admin_confirm_booking(
     b.pin_code = _gen_pin()
     await session.commit()
     return {"status": "confirmed", "pin_code": b.pin_code, "booking_id": b.id, "forced": force}
+
+
+# ── Admin: host payout batches (SEPA) ─────────────────────────────────────────
+
+@app.get("/api/admin/payouts/pending")
+async def admin_payouts_pending(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """Preview of what each host is owed. Hosts without an IBAN still appear
+    so the admin can see the amount being held and nudge them to add one."""
+    rows = await payouts.pending_by_host(session)
+    # Hide internal booking_ids array from the preview; batch generation reads
+    # it fresh at commit time anyway.
+    return [
+        {k: v for k, v in r.items() if k != "booking_ids"}
+        for r in rows
+    ]
+
+
+@app.post("/api/admin/payouts/generate")
+async def admin_payouts_generate(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> list[HostPayoutOut]:
+    """Create a HostPayout row for every payable host (one per host, not per
+    booking). Locks the included booking IDs so a second call doesn't
+    double-batch them. Idempotent in effect: with nothing new to pay out it
+    returns an empty list."""
+    batch = await payouts.generate_batch(session, decrypt_iban=_decrypt_iban)
+    return [await _host_payout_out(p, session) for p in batch]
+
+
+@app.get("/api/admin/payouts")
+async def admin_payouts_list(
+    status: Optional[str] = None,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> list[HostPayoutOut]:
+    stmt = select(HostPayout).order_by(HostPayout.created_at.desc())
+    if status:
+        stmt = stmt.where(HostPayout.status == status)
+    rows = (await session.execute(stmt)).scalars().all()
+    return [await _host_payout_out(p, session) for p in rows]
+
+
+@app.get("/api/admin/payouts/{payout_id}/csv")
+async def admin_payouts_csv(
+    payout_id: int,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Download a single-row CSV for bank upload. Admin can fetch multiple
+    and concatenate, or just upload one at a time for low volume."""
+    p = await session.get(HostPayout, payout_id)
+    if not p:
+        raise HTTPException(404, "Payout batch not found")
+    host = await session.get(User, p.host_id)
+    csv_text = payouts.to_csv(
+        [p],
+        decrypt_iban=_decrypt_iban,
+        host_lookup={p.host_id: host} if host else {},
+    )
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="payout-{p.id}.csv"'},
+    )
+
+
+@app.get("/api/admin/payouts/csv")
+async def admin_payouts_pending_csv(
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Multi-row CSV: every currently-pending batch in one file. Convenient
+    for a weekly run where the admin generates and then downloads once."""
+    rows = (await session.execute(
+        select(HostPayout).where(HostPayout.status == "pending").order_by(HostPayout.id)
+    )).scalars().all()
+    if not rows:
+        return Response(content="IBAN,Name,Amount,Currency,Reference\n", media_type="text/csv")
+    host_ids = {r.host_id for r in rows}
+    hosts = (await session.execute(select(User).where(User.id.in_(host_ids)))).scalars().all()
+    host_lookup = {h.id: h for h in hosts}
+    csv_text = payouts.to_csv(rows, decrypt_iban=_decrypt_iban, host_lookup=host_lookup)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="payouts-{today}.csv"'},
+    )
+
+
+@app.post("/api/admin/payouts/{payout_id}/mark-paid")
+async def admin_payouts_mark_paid(
+    payout_id: int,
+    body: MarkPaidIn,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> HostPayoutOut:
+    p = await session.get(HostPayout, payout_id)
+    if not p:
+        raise HTTPException(404, "Payout batch not found")
+    if p.status == "paid":
+        return await _host_payout_out(p, session)
+    p = await payouts.mark_batch_paid(session, p, sepa_reference=body.sepa_reference)
+    return await _host_payout_out(p, session)
+
+
+async def _host_payout_out(p: HostPayout, session: AsyncSession) -> HostPayoutOut:
+    import json as _json
+    try:
+        booking_count = len(_json.loads(p.booking_ids_json or "[]"))
+    except _json.JSONDecodeError:
+        booking_count = 0
+    host = await session.get(User, p.host_id)
+    return HostPayoutOut(
+        id=p.id,
+        host_id=p.host_id,
+        host_name=host.full_name if host else None,
+        period_start=p.period_start,
+        period_end=p.period_end,
+        net_eur=p.net_eur,
+        booking_count=booking_count,
+        iban_last4=p.iban_last4,
+        account_holder=p.account_holder,
+        status=p.status,
+        sepa_reference=p.sepa_reference,
+        created_at=p.created_at,
+        paid_at=p.paid_at,
+    )
 
 
 # ── Host joining fee ─────────────────────────────────────────────────────────
