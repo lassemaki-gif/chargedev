@@ -37,11 +37,13 @@ from .models import (
     Booking, BookingStatus, Listing, PACKAGES_KWH, PlatformMollie, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
+from . import sumup
 from .schemas import (
     BookingCreate, BookingOut, ForgotPasswordRequest, ListingCreate, ListingOut,
-    LoginRequest, OcppChargePointOut, OcppRegisterRequest, PlatformStats,
-    ProfileUpdate, RegisterRequest, ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings,
-    ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
+    LoginRequest, OcppChargePointOut, OcppRegisterRequest, PayoutAccountIn, PayoutAccountOut,
+    PlatformStats, ProfileUpdate, RegisterRequest, ResetPasswordRequest, ReviewCreate,
+    ReviewOut, SellerEarnings, ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut,
+    WeeklyAvailabilitySchema,
 )
 
 
@@ -1065,7 +1067,73 @@ async def seller_earnings(
         stripe_onboarded=False,
         stripe_account_id=None,
         joining_fee_paid=current_user.joining_fee_paid,
-        mollie_connected=bool(current_user.stripe_account_id),
+        payout_account_set=bool(current_user.iban and current_user.payout_account_holder),
+        mollie_connected=False,  # legacy; Mollie Connect is retired
+    )
+
+
+# ── Host payout account (SumUp era: manual SEPA batches to host IBANs) ────────
+
+def _normalize_iban(raw: str) -> str:
+    """Strip spaces and uppercase. Does not validate the checksum; frontend plus
+    SumUp's own payout flow will catch malformed values."""
+    return "".join(raw.split()).upper()
+
+
+def _encrypt_iban(iban: str) -> str:
+    """IBAN is at-rest sensitive — encrypt with the same Fernet key as other secrets."""
+    from cryptography.fernet import Fernet
+    if not settings.mollie_token_key:
+        raise HTTPException(503, "Encryption key not configured")
+    return Fernet(settings.mollie_token_key.encode()).encrypt(iban.encode()).decode()
+
+
+def _decrypt_iban(ciphertext: str) -> str:
+    from cryptography.fernet import Fernet, InvalidToken
+    try:
+        return Fernet(settings.mollie_token_key.encode()).decrypt(ciphertext.encode()).decode()
+    except InvalidToken:
+        # Legacy plaintext row (pre-SumUp cleanup wiped these, but a backup restore could bring one back).
+        return ciphertext
+
+
+@app.get("/api/seller/payout-account", response_model=PayoutAccountOut)
+async def get_payout_account(
+    current_user: User = Depends(require_role("seller", "admin")),
+):
+    if not current_user.iban or not current_user.payout_account_holder:
+        return PayoutAccountOut(is_set=False)
+    try:
+        iban = _decrypt_iban(current_user.iban)
+    except Exception:
+        logger.error("IBAN decrypt failed for user %d", current_user.id)
+        return PayoutAccountOut(is_set=False)
+    return PayoutAccountOut(
+        iban_last4=iban[-4:] if len(iban) >= 4 else iban,
+        account_holder=current_user.payout_account_holder,
+        is_set=True,
+    )
+
+
+@app.put("/api/seller/payout-account", response_model=PayoutAccountOut)
+async def set_payout_account(
+    body: PayoutAccountIn,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    iban = _normalize_iban(body.iban)
+    if len(iban) < 15 or len(iban) > 34 or not iban[:2].isalpha():
+        raise HTTPException(400, "IBAN looks malformed — check the country prefix and length.")
+    holder = (body.account_holder or "").strip()
+    if len(holder) < 2:
+        raise HTTPException(400, "Account holder name is required.")
+    current_user.iban = _encrypt_iban(iban)
+    current_user.payout_account_holder = holder
+    await session.commit()
+    return PayoutAccountOut(
+        iban_last4=iban[-4:],
+        account_holder=holder,
+        is_set=True,
     )
 
 
@@ -1829,87 +1897,43 @@ async def create_checkout(
     session.add(booking)
     await session.flush()  # get booking.id before commit
 
-    # Connect for Platforms: the host owns the payment on their own Mollie org;
-    # we take a 20% application fee that lands in the platform balance.
+    # SumUp acquiring: the full gross settles to ChargedEV's merchant account.
+    # VAT and the host's 80%-of-net earnings are routed by us afterwards —
+    # VAT to Verohallinto, host share via weekly SEPA batches to their IBAN.
     host = await session.get(User, listing.seller_id)
-    if not host or not host.mollie_access_token:
-        raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
+    if not host:
+        raise HTTPException(409, "This listing has no host. Please try another charger.")
 
-    # Lazy backfill: pre-existing hosts need a per-host webhook token minted
-    # once so Mollie's stored webhookUrl carries their token instead of the
-    # shared platform secret.
-    if not host.webhook_token:
-        host.webhook_token = secrets.token_urlsafe(32)
-        await session.commit()
-
-    # Lazy backfill: hosts who connected before the profile cache landed
-    # don't yet have mollie_profile_id — fetch it once and store it.
-    if not host.mollie_profile_id:
-        try:
-            prof_resp = await _mollie_user_request(host, session, "GET", "/profiles")
-            profiles = prof_resp.json().get("_embedded", {}).get("profiles", [])
-            if not profiles:
-                raise HTTPException(409, "This host hasn't created a payment profile in Mollie yet. Please try another charger.")
-            host.mollie_profile_id = profiles[0].get("id")
-            await session.commit()
-        except HTTPException:
-            raise
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code == 403:
-                logger.warning("Host %d: profiles.read scope missing — reconnect required", host.id)
-                raise HTTPException(409, "This host needs to reconnect their Mollie account to grant profile access. Please try another charger.")
-            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, _scrub(exc.response.text))
-            raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
-        except Exception as exc:
-            logger.error("Could not fetch Mollie profiles for host %d: %s", host.id, exc)
-            raise HTTPException(409, "Host's Mollie account is missing a payment profile. Please contact support.")
-
-    payment_data: dict = {
-        "amount": {"currency": "EUR", "value": f"{total:.2f}"},
-        "description": f"{body.package_kwh} kWh — {listing.title}",
-        "redirectUrl": f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
-        # Per-host webhook token: the host can see this URL in their Mollie
-        # dashboard, so it must only authenticate webhooks for their own
-        # bookings — never the platform-wide secret.
-        "webhookUrl": f"{settings.backend_url}/api/webhooks/mollie?token={host.webhook_token}",
-        "metadata": {"booking_id": str(booking.id)},
-        "profileId": host.mollie_profile_id,
-        # ChargedEV is the deemed supplier (Finnish VAT 25.5%), so the VAT is
-        # swept to our Mollie org alongside the platform fee — we remit it to
-        # Verohallinto. The host's Mollie balance receives only their net
-        # earnings (booking.seller_earnings_eur).
-        "applicationFee": {
-            "amount": {"currency": "EUR", "value": f"{fee + vat:.2f}"},
-            "description": "ChargedEV platform fee + Finnish VAT 25.5%",
-        },
-    }
-
-    idempotency_key = f"booking-{booking.id}"
     try:
-        resp = await _mollie_user_request(
-            host, session, "POST", "/payments",
-            idempotency_key=idempotency_key, json=payment_data,
+        checkout = await sumup.create_checkout(
+            checkout_reference=f"booking-{booking.id}",
+            amount_eur=Decimal(f"{total:.2f}"),
+            description=f"{body.package_kwh} kWh — {listing.title}",
+            return_url=f"{settings.frontend_url}/charge/success?booking_id={booking.id}",
+            customer_email=current_user.email,
         )
-        payment = resp.json()
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:
-        logger.error("Mollie payment creation failed: status=%s body=%s",
+        logger.error("SumUp checkout creation failed: status=%s body=%s",
                      exc.response.status_code, _scrub(exc.response.text))
         raise HTTPException(502, "Could not create payment. Please try again.")
     except Exception as exc:
-        logger.error("Mollie payment creation failed: %s", exc)
+        logger.error("SumUp checkout creation failed: %s", exc)
         raise HTTPException(502, "Could not create payment. Please try again.")
 
-    booking.stripe_session_id = payment["id"]  # reuse column for Mollie payment ID
-    # Under applicationFee, Mollie credits the host's balance net of the fee at
-    # capture time — no manual payout step needed.
-    booking.paid_out = True
-    booking.paid_out_at = datetime.utcnow()
+    if not checkout.get("checkout_id") or not checkout.get("checkout_url"):
+        logger.error("SumUp checkout response missing fields: %s", checkout)
+        raise HTTPException(502, "Payment provider returned an unexpected response.")
+
+    booking.stripe_session_id = checkout["checkout_id"]  # reuse column for the SumUp checkout ID
+    # Money lands in ChargedEV's account, not the host's — paid_out tracks the
+    # weekly SEPA transfer to the host, which happens separately.
+    booking.paid_out = False
+    booking.paid_out_at = None
     await session.commit()
 
-    checkout_url = payment["_links"]["checkout"]["href"]
-    return {"checkout_url": checkout_url, "booking_id": booking.id}
+    return {"checkout_url": checkout["checkout_url"], "booking_id": booking.id}
 
 
 # ── Shelly Premium host endpoints ─────────────────────────────────────────────
@@ -2251,7 +2275,7 @@ async def verify_checkout(
     current_user: User = Depends(require_role("buyer", "seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    """Called by success page — verifies payment with Mollie and confirms booking immediately."""
+    """Called by success page — verifies the SumUp checkout and confirms the booking immediately."""
     b = (await session.execute(
         select(Booking).where(Booking.id == booking_id).with_for_update()
     )).scalar_one_or_none()
@@ -2265,24 +2289,20 @@ async def verify_checkout(
         b.buyer = current_user
         return _booking_out(b, show_pin=True)
 
-    # Ask Mollie directly — don't wait for webhook. Payment lives on the host's
-    # Mollie org (Connect for Platforms), so use their token to fetch it.
+    # Ask SumUp directly — no webhook wait required.
     if b.stripe_session_id:
         try:
             listing = await session.get(Listing, b.listing_id)
             host = await session.get(User, listing.seller_id) if listing else None
-            if not host or not host.mollie_access_token:
-                raise RuntimeError("Host has no Mollie connection")
-            resp = await _mollie_user_request(host, session, "GET", f"/payments/{b.stripe_session_id}")
-            payment = resp.json()
-            if payment.get("status") == "paid" and b.status == BookingStatus.pending:
+            result = await sumup.verify_checkout(b.stripe_session_id)
+            if result.get("status") == "PAID" and b.status == BookingStatus.pending:
                 b.status = BookingStatus.confirmed
                 b.pin_code = _gen_pin()
                 await session.commit()
                 logger.info("Booking %d confirmed via verify endpoint", b.id)
                 if listing:
                     await send_pin_email(current_user.email, current_user.full_name, b, listing)
-                if host:
+                if host and listing:
                     await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
                 await _transfer_to_host(b, session)
                 if listing and listing.ocpp_charge_point_id:
@@ -2290,7 +2310,7 @@ async def verify_checkout(
                 elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
                     asyncio.create_task(_shelly_start_session(b, listing))
         except Exception as exc:
-            logger.error("Mollie verify error for booking %d: %s", booking_id, exc)
+            logger.error("SumUp verify error for booking %d: %s", booking_id, exc)
 
     b.listing = await session.get(Listing, b.listing_id)
     b.buyer = current_user

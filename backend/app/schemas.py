@@ -232,7 +232,24 @@ class SellerEarnings(BaseModel):
     stripe_onboarded: bool
     stripe_account_id: Optional[str]
     joining_fee_paid: Optional[bool] = None
+    # True once the host has saved an IBAN + account holder. Payouts run as a
+    # weekly SEPA batch from ChargedEV's bank; without this, we can't pay them.
+    payout_account_set: bool = False
+    # Legacy field — kept so the current frontend keeps rendering. False from now on.
     mollie_connected: bool = False
+
+
+class PayoutAccountIn(BaseModel):
+    iban: str
+    account_holder: str
+
+
+class PayoutAccountOut(BaseModel):
+    # Never return the full IBAN once stored; show the tail so the host can
+    # recognise what's on file without re-exposing full account details.
+    iban_last4: Optional[str] = None
+    account_holder: Optional[str] = None
+    is_set: bool = False
 
 
 class StripeOnboardResponse(BaseModel):

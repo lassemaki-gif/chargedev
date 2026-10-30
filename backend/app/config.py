@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     mollie_client_secret: str = ""
     mollie_token_key: str = ""  # Fernet key for encrypting OAuth tokens at rest
     mollie_advanced_access_token: str = ""  # access_… token with clients.write for /client-links
+
+    # SumUp Online Payments API (single-merchant acquiring; no sub-merchant OAuth).
+    # All checkouts settle to ChargedEV's own merchant account; hosts are paid
+    # weekly via SEPA from the backend/app/payouts module.
+    sumup_secret_key: str = ""   # sup_sk_… — backend-only, keep out of frontend
+    sumup_merchant_code: str = ""  # M-XXXXXXXX from the SumUp dashboard
+    sumup_webhook_secret: str = ""  # shared secret for webhook signature verification
     backend_url: str = "https://chargedev-production.up.railway.app"
     frontend_url: str = "https://chargedev.io"
     resend_api_key: str = ""

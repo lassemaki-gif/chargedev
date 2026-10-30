@@ -68,9 +68,9 @@ export const api = {
   sellerEarnings: () => req<SellerEarnings>("GET", "/api/seller/earnings"),
   stripeOnboard: () => req<{ url: string }>("POST", "/api/seller/stripe/onboard"),
   stripeStatus: () => req<{ onboarded: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("GET", "/api/seller/stripe/status"),
-  mollieOnboarding: () => req<{ status: string; can_receive_payments: boolean; needs_data?: boolean }>("GET", "/api/seller/mollie/onboarding"),
-  mollieBalance: () => req<{ status: string; currency?: string; available?: string; pending?: string; balance_status?: string; detail?: string }>("GET", "/api/seller/mollie/balance"),
-  mollieSettlements: () => req<{ status: string; settlements: Array<{ id: string; reference: string | null; created_at: string; settled_at: string | null; status: string; amount: string; currency: string }> }>("GET", "/api/seller/mollie/settlements"),
+  payoutAccount: () => req<PayoutAccount>("GET", "/api/seller/payout-account"),
+  setPayoutAccount: (body: { iban: string; account_holder: string }) =>
+    req<PayoutAccount>("PUT", "/api/seller/payout-account", body),
   payJoiningFee: () => req<{ checkout_url: string; payment_id: string } | { status: string }>("POST", "/api/seller/joining-fee"),
   verifyJoiningFee: (paymentId: string) => req<{ paid: boolean }>("GET", `/api/seller/joining-fee/verify?payment_id=${paymentId}`),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),
@@ -218,7 +218,14 @@ export interface SellerEarnings {
   stripe_onboarded: boolean;
   stripe_account_id: string | null;
   joining_fee_paid: boolean | null;
-  mollie_connected: boolean;
+  payout_account_set: boolean;
+  mollie_connected: boolean;  // legacy, always false
+}
+
+export interface PayoutAccount {
+  iban_last4: string | null;
+  account_holder: string | null;
+  is_set: boolean;
 }
 
 export interface PlatformStats {

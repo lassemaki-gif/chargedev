@@ -44,7 +44,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(40))
-    iban: Mapped[Optional[str]] = mapped_column(String(34))  # kept for legacy data, no longer used
+    iban: Mapped[Optional[str]] = mapped_column(String(255))  # host payout IBAN (SumUp era), Fernet-encrypted at rest
+    payout_account_holder: Mapped[Optional[str]] = mapped_column(String(120))
     stripe_account_id: Mapped[Optional[str]] = mapped_column(String(255))  # reused: stores Mollie org ID
     mollie_access_token: Mapped[Optional[str]] = mapped_column(String(2048))
     mollie_refresh_token: Mapped[Optional[str]] = mapped_column(String(2048))

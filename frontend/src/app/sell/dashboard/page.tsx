@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus } from "@/lib/api";
+import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus, PayoutAccount } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function statusBadge(s: string) {
@@ -29,9 +29,11 @@ function SellerDashboardInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
-  const [mollieOnboarding, setMollieOnboarding] = useState<{ status: string; can_receive_payments: boolean } | null>(null);
-  const [mollieBalance, setMollieBalance] = useState<{ status: string; currency?: string; available?: string; pending?: string } | null>(null);
-  const [mollieSettlements, setMollieSettlements] = useState<Array<{ id: string; reference: string | null; created_at: string; settled_at: string | null; status: string; amount: string; currency: string }>>([]);
+  const [payoutAccount, setPayoutAccount] = useState<PayoutAccount | null>(null);
+  const [payoutForm, setPayoutForm] = useState({ iban: "", account_holder: "" });
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutError, setPayoutError] = useState<string | null>(null);
+  const [payoutEditing, setPayoutEditing] = useState(false);
   const [completing, setCompleting] = useState<number | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [shellyOpen, setShellyOpen] = useState<number | null>(null);
@@ -44,33 +46,22 @@ function SellerDashboardInner() {
   const [ocppSaving, setOcppSaving] = useState(false);
 
   useEffect(() => {
-    // Clean up Mollie Connect success param
-    if (searchParams.get("mollie") === "connected") {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("mollie");
-      window.history.replaceState({}, "", url.toString());
-    }
     // Check if returning from joining fee payment
     const paymentId = searchParams.get("joining_fee") || sessionStorage.getItem("joining_fee_payment_id");
     if (paymentId) {
       sessionStorage.removeItem("joining_fee_payment_id");
       api.verifyJoiningFee(paymentId).catch(() => {}).finally(() => {
-        // Remove query param cleanly
         const url = new URL(window.location.href);
         url.searchParams.delete("joining_fee");
         window.history.replaceState({}, "", url.toString());
       });
     }
-    Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings()])
-      .then(([l, b, e]) => {
+    Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings(), api.payoutAccount()])
+      .then(([l, b, e, p]) => {
         setListings(l);
         setBookings(b);
-        if (e.mollie_connected) {
-          api.mollieOnboarding().then(setMollieOnboarding).catch(() => {});
-          api.mollieBalance().then(setMollieBalance).catch(() => {});
-          api.mollieSettlements().then((r) => setMollieSettlements(r.settlements)).catch(() => {});
-        }
         setEarnings(e);
+        setPayoutAccount(p);
       })
       .catch((e) => {
         const msg: string = e.message ?? "";
@@ -79,6 +70,26 @@ function SellerDashboardInner() {
       })
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function savePayoutAccount() {
+    setPayoutError(null);
+    setPayoutSaving(true);
+    try {
+      const updated = await api.setPayoutAccount({
+        iban: payoutForm.iban.trim().replace(/\s+/g, "").toUpperCase(),
+        account_holder: payoutForm.account_holder.trim(),
+      });
+      setPayoutAccount(updated);
+      setPayoutForm({ iban: "", account_holder: "" });
+      setPayoutEditing(false);
+      // Refresh earnings so payout_account_set flips to true in the UI.
+      try { setEarnings(await api.sellerEarnings()); } catch { /* ignore */ }
+    } catch (err: unknown) {
+      setPayoutError(err instanceof Error ? err.message : "Failed to save payout account.");
+    } finally {
+      setPayoutSaving(false);
+    }
+  }
 
   async function payFee() {
     setFeeLoading(true);
@@ -258,109 +269,79 @@ function SellerDashboardInner() {
           </div>
         )}
 
-        {/* Payout account */}
+        {/* Payout account — IBAN for weekly SEPA host payouts */}
         <div className="card mb-10">
           <h2 className="font-semibold text-white mb-1">Payout account</h2>
-          {earnings?.mollie_connected ? (
+          {payoutAccount?.is_set && !payoutEditing ? (
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <span className="text-green-400 text-sm font-medium">Payout account connected ✓</span>
-                {mollieOnboarding && (
-                  <div className="mt-1">
-                    {mollieOnboarding.status === "completed" && (
-                      <p className="text-green-400 text-xs">Onboarding complete — earnings routed automatically on each booking.</p>
-                    )}
-                    {mollieOnboarding.status === "needs-data" && (
-                      <p className="text-yellow-400 text-xs">⚠ Your payout account needs more information. Please complete your profile with the payment provider.</p>
-                    )}
-                    {mollieOnboarding.status === "in-progress" && (
-                      <p className="text-ash text-xs">Your payout account is under review — earnings will be routed once approved.</p>
-                    )}
-                  </div>
-                )}
-                {!mollieOnboarding && (
-                  <p className="text-ash text-xs mt-0.5">Your 80% earnings are transferred automatically on each booking.</p>
-                )}
+                <span className="text-green-400 text-sm font-medium">Payout account on file ✓</span>
+                <p className="text-ash text-xs mt-0.5">
+                  {payoutAccount.account_holder} · IBAN ending {payoutAccount.iban_last4}
+                </p>
+                <p className="text-ash text-xs mt-1">
+                  Your earnings (80% of each booking, net of VAT) are paid out weekly via SEPA to this account.
+                </p>
               </div>
-              <a
-                href="/api/proxy/api/seller/mollie/disconnect"
-                onClick={async (e) => {
-                  e.preventDefault();
-                  if (!confirm("Disconnect your payout account? Payouts will pause until reconnected.")) return;
-                  await fetch("/api/proxy/api/seller/mollie/disconnect", { method: "DELETE", credentials: "include" });
-                  window.location.reload();
-                }}
-                className="text-xs text-red-400 hover:text-red-300"
+              <button
+                onClick={() => { setPayoutEditing(true); setPayoutError(null); }}
+                className="text-xs text-ash hover:text-white"
               >
-                Disconnect
-              </a>
+                Update
+              </button>
             </div>
           ) : (
             <>
               <p className="text-ash text-sm mb-4">
-                Payout provider onboarding is temporarily paused while we switch providers. New hosts will be able to connect again shortly.
+                Add the bank account where you&apos;d like your weekly earnings paid out. SEPA transfers only, EUR.
               </p>
-              <button
-                disabled
-                className="btn-volt text-sm px-6 opacity-40 cursor-not-allowed"
-              >
-                Connect payout account
-              </button>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-ash text-xs mb-1">Account holder</label>
+                  <input
+                    type="text"
+                    value={payoutForm.account_holder}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, account_holder: e.target.value })}
+                    placeholder="Full name as it appears on your bank account"
+                    className="input w-full"
+                    maxLength={120}
+                  />
+                </div>
+                <div>
+                  <label className="block text-ash text-xs mb-1">IBAN</label>
+                  <input
+                    type="text"
+                    value={payoutForm.iban}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, iban: e.target.value })}
+                    placeholder="FI00 0000 0000 0000 00"
+                    className="input w-full font-mono tracking-wider"
+                    maxLength={42}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
+                {payoutError && <p className="text-red-400 text-xs">{payoutError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={savePayoutAccount}
+                    disabled={payoutSaving || !payoutForm.iban || !payoutForm.account_holder}
+                    className="btn-volt text-sm px-6 disabled:opacity-40"
+                  >
+                    {payoutSaving ? "Saving…" : "Save payout account"}
+                  </button>
+                  {payoutEditing && (
+                    <button
+                      onClick={() => { setPayoutEditing(false); setPayoutError(null); setPayoutForm({ iban: "", account_holder: "" }); }}
+                      className="btn-outline text-sm px-4"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </div>
-
-        {/* Payout balance + settlements */}
-        {earnings?.mollie_connected && mollieBalance?.status === "ok" && (
-          <div className="card mb-10">
-            <h2 className="font-semibold text-white mb-3">Your payout balance</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-ash text-xs">Available</div>
-                <div className="text-white font-medium">
-                  {mollieBalance.available} {mollieBalance.currency}
-                </div>
-              </div>
-              <div>
-                <div className="text-ash text-xs">Pending</div>
-                <div className="text-white font-medium">
-                  {mollieBalance.pending} {mollieBalance.currency}
-                </div>
-              </div>
-            </div>
-            {mollieSettlements.length > 0 && (
-              <div className="mt-5">
-                <div className="text-ash text-xs mb-2">Recent payouts</div>
-                <ul className="divide-y divide-white/10">
-                  {mollieSettlements.map((s) => (
-                    <li key={s.id} className="py-2 flex items-center justify-between text-xs">
-                      <div>
-                        <div className="text-white">
-                          {s.amount} {s.currency}
-                        </div>
-                        <div className="text-ash">
-                          {s.settled_at
-                            ? new Date(s.settled_at).toLocaleDateString()
-                            : new Date(s.created_at).toLocaleDateString()}
-                          {s.reference ? ` · ${s.reference}` : ""}
-                        </div>
-                      </div>
-                      <span className="text-ash">{s.status}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-        {earnings?.mollie_connected && mollieBalance?.status === "scope_missing" && (
-          <div className="card mb-10">
-            <h2 className="font-semibold text-white mb-1">Your payout balance</h2>
-            <p className="text-yellow-400 text-xs mt-1">
-              Reconnect your payout account to show balance and payout history (new permissions required).
-            </p>
-          </div>
-        )}
 
         {/* Listings */}
         <h2 className="text-lg font-semibold text-white mb-4">Your chargers</h2>

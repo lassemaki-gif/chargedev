@@ -62,7 +62,11 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                         started_at TIMESTAMP DEFAULT NOW(),
                         stopped_at TIMESTAMP
                     )""",
-                    "UPDATE users SET iban = NULL WHERE iban IS NOT NULL",
+                    # NOTE: previously wiped iban on every boot while payouts ran through
+                    # Mollie Connect. SumUp returns payouts to ChargedEV's account, so we
+                    # need to collect each host's IBAN again for weekly SEPA batches.
+                    "ALTER TABLE users ALTER COLUMN iban TYPE VARCHAR(255)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_account_holder VARCHAR(120)",
                     "ALTER TABLE listings ADD COLUMN IF NOT EXISTS ocpp_charge_point_id VARCHAR(255)",
                     "CREATE UNIQUE INDEX IF NOT EXISTS ix_listings_ocpp_charge_point_id ON listings (ocpp_charge_point_id) WHERE ocpp_charge_point_id IS NOT NULL",
                     """CREATE TABLE IF NOT EXISTS ocpp_charge_points (
