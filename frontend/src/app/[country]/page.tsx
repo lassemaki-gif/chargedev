@@ -109,6 +109,9 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
               <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5">{brand}</span>
             ))}
           </div>
+          <div className="text-ash text-xs">
+            {t.paymentsSecuredByBefore}<span className="text-white font-medium">SumUp</span>{t.paymentsSecuredByAfter}
+          </div>
         </div>
       </section>
 
