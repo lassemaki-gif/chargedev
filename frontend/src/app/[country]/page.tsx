@@ -104,10 +104,6 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
       {/* Payment trust strip */}
       <section className="border-t border-border bg-card/50 px-4 sm:px-6 lg:px-16 py-6 sm:py-8">
         <div className="flex flex-wrap items-center gap-4 sm:gap-8 lg:gap-12">
-          <div className="flex items-center gap-2.5 text-ash">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span className="text-sm">{t.securedByBefore}<span className="text-white font-medium">Mollie</span>{t.securedByAfter}</span>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             {["Visa", "Mastercard", "Amex", "Apple Pay", "Google Pay"].map((brand) => (
               <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5">{brand}</span>
@@ -153,10 +149,6 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
             </div>
             <p className="text-ash text-xs">{m.countryNameEn} · chargedev.io/{m.id}</p>
             <p className="text-ash text-xs mt-1">ChargedEV.io Finland · VAT ID: FI36604922-EX</p>
-          </div>
-          <div className="flex items-center gap-1.5 text-ash text-xs">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span>{t.paymentsSecuredByBefore}<span className="text-white/70">Mollie</span>{t.paymentsSecuredByAfter}</span>
           </div>
         </div>
       </footer>

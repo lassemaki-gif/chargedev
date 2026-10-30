@@ -258,23 +258,23 @@ function SellerDashboardInner() {
           </div>
         )}
 
-        {/* Mollie Connect */}
+        {/* Payout account */}
         <div className="card mb-10">
           <h2 className="font-semibold text-white mb-1">Payout account</h2>
           {earnings?.mollie_connected ? (
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <span className="text-green-400 text-sm font-medium">Mollie connected ✓</span>
+                <span className="text-green-400 text-sm font-medium">Payout account connected ✓</span>
                 {mollieOnboarding && (
                   <div className="mt-1">
                     {mollieOnboarding.status === "completed" && (
                       <p className="text-green-400 text-xs">Onboarding complete — earnings routed automatically on each booking.</p>
                     )}
                     {mollieOnboarding.status === "needs-data" && (
-                      <p className="text-yellow-400 text-xs">⚠ Your Mollie account needs more information. <a href="https://my.mollie.com" target="_blank" rel="noreferrer" className="underline">Complete your Mollie profile →</a></p>
+                      <p className="text-yellow-400 text-xs">⚠ Your payout account needs more information. Please complete your profile with the payment provider.</p>
                     )}
                     {mollieOnboarding.status === "in-progress" && (
-                      <p className="text-ash text-xs">Mollie is reviewing your account — earnings will be routed once approved.</p>
+                      <p className="text-ash text-xs">Your payout account is under review — earnings will be routed once approved.</p>
                     )}
                   </div>
                 )}
@@ -286,7 +286,7 @@ function SellerDashboardInner() {
                 href="/api/proxy/api/seller/mollie/disconnect"
                 onClick={async (e) => {
                   e.preventDefault();
-                  if (!confirm("Disconnect your Mollie account? Payouts will pause until reconnected.")) return;
+                  if (!confirm("Disconnect your payout account? Payouts will pause until reconnected.")) return;
                   await fetch("/api/proxy/api/seller/mollie/disconnect", { method: "DELETE", credentials: "include" });
                   window.location.reload();
                 }}
@@ -298,30 +298,22 @@ function SellerDashboardInner() {
           ) : (
             <>
               <p className="text-ash text-sm mb-4">
-                Connect your Mollie account to receive 80% of each booking automatically — paid daily to your bank account.
+                Payout provider onboarding is temporarily paused while we switch providers. New hosts will be able to connect again shortly.
               </p>
               <button
-                onClick={async () => {
-                  try {
-                    const res = await fetch("/api/proxy/api/seller/mollie/connect", { credentials: "include" });
-                    const { auth_url } = await res.json();
-                    window.location.href = auth_url;
-                  } catch {
-                    setError("Could not start Mollie connection. Please try again.");
-                  }
-                }}
-                className="btn-volt text-sm px-6"
+                disabled
+                className="btn-volt text-sm px-6 opacity-40 cursor-not-allowed"
               >
-                Connect with Mollie
+                Connect payout account
               </button>
             </>
           )}
         </div>
 
-        {/* Mollie balance + settlements */}
+        {/* Payout balance + settlements */}
         {earnings?.mollie_connected && mollieBalance?.status === "ok" && (
           <div className="card mb-10">
-            <h2 className="font-semibold text-white mb-3">Your Mollie balance</h2>
+            <h2 className="font-semibold text-white mb-3">Your payout balance</h2>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <div className="text-ash text-xs">Available</div>
@@ -363,9 +355,9 @@ function SellerDashboardInner() {
         )}
         {earnings?.mollie_connected && mollieBalance?.status === "scope_missing" && (
           <div className="card mb-10">
-            <h2 className="font-semibold text-white mb-1">Your Mollie balance</h2>
+            <h2 className="font-semibold text-white mb-1">Your payout balance</h2>
             <p className="text-yellow-400 text-xs mt-1">
-              Reconnect your Mollie account to show balance and payout history (new permissions required).
+              Reconnect your payout account to show balance and payout history (new permissions required).
             </p>
           </div>
         )}

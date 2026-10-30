@@ -200,10 +200,6 @@ export default function Landing() {
       {/* Payment trust strip */}
       <section className="border-t border-border bg-card/50 px-6 lg:px-16 py-8">
         <div className="flex flex-wrap items-center gap-6 lg:gap-12">
-          <div className="flex items-center gap-2.5 text-ash">
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span className="text-sm">All payments secured by <span className="text-white font-medium">Mollie</span></span>
-          </div>
           <div className="flex flex-wrap items-center gap-2">
             {["Visa", "Mastercard", "Amex", "Apple Pay", "Google Pay"].map((brand) => (
               <span key={brand} className="text-xs font-medium text-ash border border-border rounded px-2 py-0.5">{brand}</span>
@@ -264,10 +260,6 @@ export default function Landing() {
               <Link href="/sell" className="hover:text-white transition-colors">For hosts</Link>
               <Link href="/charge" className="hover:text-white transition-colors">Find a charger</Link>
               <a href="mailto:support@chargedev.io" className="hover:text-white transition-colors">Support</a>
-            </div>
-            <div className="flex items-center gap-1.5 text-ash text-xs">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              <span>Payments secured by <span className="text-white/70">Mollie</span></span>
             </div>
             <a href="mailto:support@chargedev.io" className="text-ash text-xs hover:text-white transition-colors">
               support@chargedev.io
