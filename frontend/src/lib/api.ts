@@ -81,6 +81,14 @@ export const api = {
   completeBooking: (id: number) => req<{ status: string }>("PUT", `/api/seller/bookings/${id}/complete`),
   adminRetryTransfer: (bookingId: number) => req<{ booking_id: number; transfer_id: string; amount_eur: number; paid_out: boolean }>("POST", `/api/admin/bookings/${bookingId}/retry-transfer`),
 
+  // Payout batches (SEPA)
+  adminPayoutsPending: () => req<PendingPayoutHost[]>("GET", "/api/admin/payouts/pending"),
+  adminPayoutsGenerate: () => req<HostPayoutOut[]>("POST", "/api/admin/payouts/generate"),
+  adminPayoutsList: (status?: "pending" | "paid" | "cancelled") =>
+    req<HostPayoutOut[]>("GET", `/api/admin/payouts${status ? `?status=${status}` : ""}`),
+  adminPayoutMarkPaid: (payoutId: number, body: { sepa_reference?: string }) =>
+    req<HostPayoutOut>("POST", `/api/admin/payouts/${payoutId}/mark-paid`, body),
+
   // Reviews
   createReview: (body: { booking_id: number; rating: number; comment?: string }) =>
     req<Review_>("POST", "/api/reviews", body),
@@ -225,6 +233,34 @@ export interface PayoutAccount {
   iban_last4: string | null;
   account_holder: string | null;
   is_set: boolean;
+}
+
+export interface PendingPayoutHost {
+  host_id: number;
+  host_name: string;
+  host_email: string;
+  iban_set: boolean;
+  account_holder: string | null;
+  booking_count: number;
+  net_eur: number;
+  earliest: string;
+  latest: string;
+}
+
+export interface HostPayoutOut {
+  id: number;
+  host_id: number;
+  host_name: string | null;
+  period_start: string;
+  period_end: string;
+  net_eur: number;
+  booking_count: number;
+  iban_last4: string | null;
+  account_holder: string | null;
+  status: "pending" | "paid" | "cancelled";
+  sepa_reference: string | null;
+  created_at: string;
+  paid_at: string | null;
 }
 
 export interface PlatformStats {

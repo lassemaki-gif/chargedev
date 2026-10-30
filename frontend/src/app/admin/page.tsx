@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { api, PlatformStats, User, Listing, Booking, saveRole } from "@/lib/api";
+import { api, PlatformStats, User, Listing, Booking, PendingPayoutHost, HostPayoutOut, saveRole } from "@/lib/api";
 
 type Tab = "overview" | "users" | "listings" | "bookings" | "payouts";
 
@@ -25,6 +25,12 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [vatFrom, setVatFrom] = useState("");
   const [vatTo, setVatTo] = useState("");
+  const [pendingPayouts, setPendingPayouts] = useState<PendingPayoutHost[]>([]);
+  const [batches, setBatches] = useState<HostPayoutOut[]>([]);
+  const [payoutsLoading, setPayoutsLoading] = useState(false);
+  const [payoutsError, setPayoutsError] = useState<string | null>(null);
+  const [batchFilter, setBatchFilter] = useState<"pending" | "paid" | "all">("pending");
+  const [markPaidRef, setMarkPaidRef] = useState<{ id: number; value: string } | null>(null);
 
   async function adminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +68,72 @@ export default function AdminDashboard() {
     setUsers((u) => u.map((user) => user.id === id ? { ...user, is_active: !user.is_active } : user));
   }
 
+  async function loadPayouts() {
+    setPayoutsLoading(true);
+    setPayoutsError(null);
+    try {
+      const [pending, batchRows] = await Promise.all([
+        api.adminPayoutsPending(),
+        api.adminPayoutsList(batchFilter === "all" ? undefined : batchFilter),
+      ]);
+      setPendingPayouts(pending);
+      setBatches(batchRows);
+    } catch (err: unknown) {
+      setPayoutsError(err instanceof Error ? err.message : "Failed to load payouts");
+    } finally {
+      setPayoutsLoading(false);
+    }
+  }
+
+  // Reload the Payouts tab whenever it's opened or the status filter changes.
+  useEffect(() => {
+    if (authed && tab === "payouts") loadPayouts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed, tab, batchFilter]);
+
+  async function generateBatches() {
+    const payable = pendingPayouts.filter((p) => p.iban_set).length;
+    if (payable === 0) {
+      alert("No payable hosts (every pending host is missing an IBAN).");
+      return;
+    }
+    if (!confirm(`Generate ${payable} payout batch(es)? Included booking IDs will be locked.`)) return;
+    try {
+      await api.adminPayoutsGenerate();
+      await loadPayouts();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Generate failed");
+    }
+  }
+
+  async function downloadBatchCsv(payoutId?: number) {
+    const path = payoutId !== undefined
+      ? `/api/admin/payouts/${payoutId}/csv`
+      : "/api/admin/payouts/csv";
+    const resp = await fetch(`/api/proxy${path}`, { credentials: "include" });
+    if (!resp.ok) { alert("CSV download failed"); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = payoutId !== undefined ? `payout-${payoutId}.csv` : `payouts-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function confirmMarkPaid() {
+    if (!markPaidRef) return;
+    try {
+      await api.adminPayoutMarkPaid(markPaidRef.id, { sepa_reference: markPaidRef.value || undefined });
+      setMarkPaidRef(null);
+      await loadPayouts();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Mark paid failed");
+    }
+  }
+
   if (!authed) return (
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="card max-w-sm w-full">
@@ -90,7 +162,7 @@ export default function AdminDashboard() {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "overview", label: "Overview" },
-    { key: "payouts", label: `Payouts (${sellers.length})` },
+    { key: "payouts", label: `Payouts${pendingPayouts.length ? ` (${pendingPayouts.length})` : ""}` },
     { key: "users", label: `Users (${users.length})` },
     { key: "listings", label: `Listings (${listings.length})` },
     { key: "bookings", label: `Bookings (${bookings.length})` },
@@ -238,51 +310,172 @@ export default function AdminDashboard() {
 
         {/* Payouts */}
         {tab === "payouts" && (
-          <div className="space-y-3">
-            {sellers.length === 0 && <div className="card text-ash text-sm">No sellers yet.</div>}
-            {sellers.map((seller) => {
-              const sellerBookings = bookings.filter((b) =>
-                listings.find((l) => l.id === b.listing_id && l.seller_id === seller.id)
-              );
-              const pending = sellerBookings
-                .filter((b) => b.status === "completed" && !b.paid_out)
-                .reduce((s, b) => s + b.seller_earnings_eur, 0);
-              const paid = sellerBookings
-                .filter((b) => b.paid_out)
-                .reduce((s, b) => s + b.seller_earnings_eur, 0);
-              const pendingBookings = sellerBookings.filter((b) => b.status === "completed" && !b.paid_out);
-              return (
-                <div key={seller.id} className="card">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="font-semibold text-white">{seller.full_name}</div>
-                      <div className="text-ash text-sm">{seller.email}</div>
-                      <div className="mt-2 flex items-center gap-4 text-sm flex-wrap">
-                        <span className="text-volt font-medium">€{pending.toFixed(2)} pending transfer</span>
-                        <span className="text-ash">€{paid.toFixed(2)} transferred</span>
+          <div className="space-y-6">
+            {payoutsError && (
+              <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm">
+                {payoutsError}
+              </div>
+            )}
+
+            {/* Pending by host */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold text-white text-lg">Pending by host</h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={loadPayouts}
+                    disabled={payoutsLoading}
+                    className="text-ash hover:text-white text-xs"
+                  >
+                    {payoutsLoading ? "Loading…" : "Refresh"}
+                  </button>
+                  <button
+                    onClick={generateBatches}
+                    disabled={payoutsLoading || pendingPayouts.filter((p) => p.iban_set).length === 0}
+                    className="btn-volt text-xs px-3 py-1.5 disabled:opacity-40"
+                  >
+                    Generate batches
+                  </button>
+                </div>
+              </div>
+              {pendingPayouts.length === 0 ? (
+                <div className="card text-ash text-sm">No pending payouts.</div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingPayouts.map((p) => (
+                    <div key={p.host_id} className="card">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div>
+                          <div className="font-medium text-white">{p.host_name}</div>
+                          <div className="text-ash text-xs">{p.host_email}</div>
+                          <div className="mt-2 flex items-center gap-3 text-sm flex-wrap">
+                            <span className="text-volt font-semibold">€{p.net_eur.toFixed(2)}</span>
+                            <span className="text-ash text-xs">{p.booking_count} booking{p.booking_count !== 1 ? "s" : ""}</span>
+                            <span className="text-ash text-xs">
+                              {new Date(p.earliest).toLocaleDateString()} → {new Date(p.latest).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div>
+                          {p.iban_set ? (
+                            <span className="badge-green">Payable</span>
+                          ) : (
+                            <span className="badge-yellow">Awaiting IBAN</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    {pendingBookings.length > 0 && (
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Batches */}
+            <div>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h2 className="font-semibold text-white text-lg">Batches</h2>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1 text-xs">
+                    {(["pending", "paid", "all"] as const).map((f) => (
                       <button
-                        onClick={async () => {
-                          if (!confirm(`Mark ${pendingBookings.length} booking(s) totalling €${pending.toFixed(2)} as paid out?`)) return;
-                          for (const b of pendingBookings) {
-                            try {
-                              await api.adminRetryTransfer(b.id);
-                            } catch { /* individual errors are fine */ }
-                          }
-                          alert("Transfer retry initiated.");
-                          loadAll();
-                        }}
-                        className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-volt/10 text-volt hover:bg-volt/20 transition-colors"
+                        key={f}
+                        onClick={() => setBatchFilter(f)}
+                        className={`px-2 py-1 rounded ${batchFilter === f ? "bg-volt/20 text-volt" : "text-ash hover:text-white"}`}
                       >
-                        Retry transfer
+                        {f.charAt(0).toUpperCase() + f.slice(1)}
                       </button>
-                    )}
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => downloadBatchCsv()}
+                    className="text-xs text-ash hover:text-white border border-border rounded px-2 py-1"
+                  >
+                    Download all pending CSV
+                  </button>
+                </div>
+              </div>
+              {batches.length === 0 ? (
+                <div className="card text-ash text-sm">No batches to show.</div>
+              ) : (
+                <div className="space-y-2">
+                  {batches.map((b) => (
+                    <div key={b.id} className="card">
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-white">#{b.id}</span>
+                            <span className="text-ash text-sm">{b.host_name || `host ${b.host_id}`}</span>
+                            {b.status === "pending" && <span className="badge-yellow">Pending</span>}
+                            {b.status === "paid" && <span className="badge-green">Paid</span>}
+                            {b.status === "cancelled" && <span className="badge-gray">Cancelled</span>}
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-xs text-ash flex-wrap">
+                            <span className="text-volt text-sm font-semibold">€{b.net_eur.toFixed(2)}</span>
+                            <span>{b.booking_count} booking{b.booking_count !== 1 ? "s" : ""}</span>
+                            {b.iban_last4 && <span>IBAN ••{b.iban_last4}</span>}
+                            {b.account_holder && <span>{b.account_holder}</span>}
+                          </div>
+                          <div className="mt-1 text-ash text-xs">
+                            Created {new Date(b.created_at).toLocaleDateString()}
+                            {b.paid_at && ` · Paid ${new Date(b.paid_at).toLocaleDateString()}`}
+                            {b.sepa_reference && ` · ref ${b.sepa_reference}`}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={() => downloadBatchCsv(b.id)}
+                            className="text-xs text-ash hover:text-white border border-border rounded px-2 py-1"
+                          >
+                            CSV
+                          </button>
+                          {b.status === "pending" && (
+                            <button
+                              onClick={() => setMarkPaidRef({ id: b.id, value: "" })}
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-volt/10 text-volt hover:bg-volt/20 transition-colors"
+                            >
+                              Mark paid
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Mark-paid modal */}
+            {markPaidRef && (
+              <div
+                className="fixed inset-0 bg-black/70 flex items-center justify-center px-4 z-50"
+                onClick={() => setMarkPaidRef(null)}
+              >
+                <div
+                  className="card max-w-sm w-full"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="font-semibold text-white mb-2">Mark batch #{markPaidRef.id} paid</h3>
+                  <p className="text-ash text-xs mb-3">
+                    This flips the batch and its underlying bookings to paid. Optionally record the SEPA
+                    reference your bank gave you after upload.
+                  </p>
+                  <label className="block text-ash text-xs mb-1">SEPA reference (optional)</label>
+                  <input
+                    type="text"
+                    value={markPaidRef.value}
+                    onChange={(e) => setMarkPaidRef({ ...markPaidRef, value: e.target.value })}
+                    placeholder="e.g. nordea-20261030-01"
+                    className="input w-full mb-4"
+                    maxLength={64}
+                    autoFocus
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <button onClick={() => setMarkPaidRef(null)} className="btn-outline text-sm px-4">Cancel</button>
+                    <button onClick={confirmMarkPaid} className="btn-volt text-sm px-4">Mark paid</button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
 
