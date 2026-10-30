@@ -83,15 +83,23 @@ async def create_checkout(
         "currency": "EUR",
         "merchant_code": settings.sumup_merchant_code,
         "description": description,
-        "return_url": return_url,
+        # Without this flag the checkout exists but SumUp doesn't mint a hosted
+        # page URL — the response comes back with no hosted_checkout_url field.
+        "hosted_checkout": {"enabled": True},
+        # Optional "back to merchant" button on SumUp's success page. The buyer
+        # must click it for our verify endpoint to run; a webhook would catch
+        # the rest, but we poll on landing, which is good enough for MVP.
+        "redirect_url": return_url,
     }
+    # customer_email is a client-level receipt convenience; SumUp ignores
+    # unknown fields silently, so passing it is safe either way.
     if customer_email:
         body["customer_email"] = customer_email
 
     data = await _request("POST", "/v0.1/checkouts", json=body)
     return {
         "checkout_id": data.get("id"),
-        "checkout_url": data.get("hosted_checkout_url") or data.get("redirect_url"),
+        "checkout_url": data.get("hosted_checkout_url"),
         "status": data.get("status"),
         "raw": data,
     }
