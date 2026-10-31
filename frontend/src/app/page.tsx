@@ -259,14 +259,18 @@ export default function Landing() {
             <p className="text-ash text-xs mt-1">ChargedEV.io Finland · VAT ID: FI36604922-EX</p>
           </div>
           <div className="flex flex-col sm:items-end gap-3">
-            <div className="flex gap-5 text-ash text-sm">
+            <div className="flex gap-5 text-ash text-sm flex-wrap sm:justify-end">
               <Link href="/sell" className="hover:text-white transition-colors">For hosts</Link>
               <Link href="/charge" className="hover:text-white transition-colors">Find a charger</Link>
               <a href="mailto:support@chargedev.io" className="hover:text-white transition-colors">Support</a>
             </div>
-            <a href="mailto:support@chargedev.io" className="text-ash text-xs hover:text-white transition-colors">
-              support@chargedev.io
-            </a>
+            <div className="flex gap-4 text-ash text-xs flex-wrap sm:justify-end">
+              <Link href="/legal/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <a href="mailto:support@chargedev.io" className="hover:text-white transition-colors">
+                support@chargedev.io
+              </a>
+            </div>
           </div>
         </div>
       </footer>

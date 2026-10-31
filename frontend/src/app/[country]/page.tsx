@@ -153,6 +153,10 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
             <p className="text-ash text-xs">{m.countryNameEn} · chargedev.io/{m.id}</p>
             <p className="text-ash text-xs mt-1">ChargedEV.io Finland · VAT ID: FI36604922-EX</p>
           </div>
+          <div className="flex gap-4 text-ash text-xs">
+            <Link href="/legal/terms" className="hover:text-white transition-colors">Terms</Link>
+            <Link href="/legal/privacy" className="hover:text-white transition-colors">Privacy</Link>
+          </div>
         </div>
       </footer>
     </div>

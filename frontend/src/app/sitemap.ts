@@ -15,6 +15,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: BASE, changeFrequency: "weekly", priority: 1.0, alternates: { languages: COUNTRY_LANG_ALTERNATES } },
     { url: `${BASE}/charge`, changeFrequency: "daily", priority: 0.9 },
     { url: `${BASE}/sell`, changeFrequency: "monthly", priority: 0.7 },
+    { url: `${BASE}/legal/terms`, changeFrequency: "yearly", priority: 0.3 },
+    { url: `${BASE}/legal/privacy`, changeFrequency: "yearly", priority: 0.3 },
   ];
 
   const country_pages: MetadataRoute.Sitemap = markets.map((m) => ({
