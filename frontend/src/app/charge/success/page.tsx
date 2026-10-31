@@ -78,16 +78,24 @@ function SuccessContent() {
     <>
       <div className="text-5xl mb-4">✅</div>
       <h2 className="text-2xl font-bold text-white mb-2">You&apos;re all set!</h2>
-      <p className="text-ash text-sm mb-6">Show this PIN to the host to start your charging session.</p>
+      <p className="text-ash text-sm mb-6">
+        Plug in at the charger, then tap Start — or scan the QR on the charger.
+      </p>
       <div className="bg-night rounded-xl p-6 mb-3">
         <p className="text-ash text-xs uppercase tracking-widest mb-2">Your session PIN</p>
         <p className="font-mono text-5xl font-bold text-volt tracking-[0.2em]">{booking!.pin_code}</p>
       </div>
       <button
         onClick={() => copyPin(booking!.pin_code!)}
-        className="w-full flex items-center justify-center gap-2 text-xs text-ash hover:text-white border border-border rounded-lg px-3 py-2 mb-6 transition-colors"
+        className="w-full flex items-center justify-center gap-2 text-xs text-ash hover:text-white border border-border rounded-lg px-3 py-2 mb-3 transition-colors"
       >
         {copied ? "✓ Copied!" : "Copy PIN to clipboard"}
+      </button>
+      <button
+        onClick={() => router.push(`/charge/${booking!.listing_id}/start`)}
+        className="btn-volt w-full text-sm py-3 mb-6"
+      >
+        Start charging now →
       </button>
       <div className="text-left space-y-2 text-sm text-ash mb-4">
         <div className="flex justify-between"><span>Charger</span><span className="text-white">{booking!.listing_title}</span></div>

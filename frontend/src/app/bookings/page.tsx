@@ -149,6 +149,15 @@ function BookingCard({ booking: b }: { booking: Booking }) {
         </div>
       )}
 
+      {b.status === "confirmed" && (
+        <Link
+          href={`/charge/${b.listing_id}/start`}
+          className="btn-volt w-full text-sm text-center mt-3"
+        >
+          Start charging →
+        </Link>
+      )}
+
       {b.status === "pending" && (
         <p className="text-ash text-xs mt-2">Payment pending — your PIN will appear here once confirmed.</p>
       )}

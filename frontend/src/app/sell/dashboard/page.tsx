@@ -427,39 +427,41 @@ function SellerDashboardInner() {
                   </div>
                 </div>
 
-                {/* My charger — host self-serve + QR */}
-                {(l.shelly_enabled || l.ocpp_enabled) && (
-                  <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
-                    {hostSessions[l.id] ? (
-                      <>
-                        <div className="text-sm">
-                          <span className="text-volt font-medium">⚡ Charging now</span>
-                          <span className="text-ash text-xs ml-2">
-                            {(hostSessions[l.id]!.energy_consumed_wh / 1000).toFixed(2)} kWh ·
-                            expires {new Date(hostSessions[l.id]!.expires_at).toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => stopHostSession(l.id)}
-                          disabled={hostSessionBusy === l.id}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-900/30 text-red-400 hover:bg-red-900/50 disabled:opacity-40"
+                {/* QR + host self-serve */}
+                <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
+                  {hostSessions[l.id] ? (
+                    <>
+                      <div className="text-sm">
+                        <span className="text-volt font-medium">⚡ Charging now</span>
+                        <span className="text-ash text-xs ml-2">
+                          {(hostSessions[l.id]!.energy_consumed_wh / 1000).toFixed(2)} kWh ·
+                          expires {new Date(hostSessions[l.id]!.expires_at).toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => stopHostSession(l.id)}
+                        disabled={hostSessionBusy === l.id}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-900/30 text-red-400 hover:bg-red-900/50 disabled:opacity-40"
+                      >
+                        {hostSessionBusy === l.id ? "Stopping…" : "Stop charging"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-ash text-xs">
+                        {l.shelly_enabled || l.ocpp_enabled
+                          ? "Print the QR for your charger. Charge your own car — up to 8 hours per session."
+                          : "Print the QR for your charger. Connect Shelly or OCPP to enable your own charging."}
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Link
+                          href={`/sell/listings/${l.id}/qr`}
+                          target="_blank"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white"
                         >
-                          {hostSessionBusy === l.id ? "Stopping…" : "Stop charging"}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-ash text-xs">
-                          Charge your own car — up to 8 hours per session, no booking needed.
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <Link
-                            href={`/sell/listings/${l.id}/qr`}
-                            target="_blank"
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white"
-                          >
-                            QR code
-                          </Link>
+                          QR code
+                        </Link>
+                        {(l.shelly_enabled || l.ocpp_enabled) && (
                           <button
                             onClick={() => startHostSession(l.id)}
                             disabled={hostSessionBusy === l.id}
@@ -467,11 +469,11 @@ function SellerDashboardInner() {
                           >
                             {hostSessionBusy === l.id ? "Starting…" : "Charge my car"}
                           </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Shelly config panel */}
                 {shellyOpen === l.id && (
