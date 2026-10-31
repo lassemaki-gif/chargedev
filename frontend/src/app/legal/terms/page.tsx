@@ -306,17 +306,9 @@ export default function TermsPage() {
 
         <Section n="16" title="Contact">
           <p>
-            General questions:{" "}
-            <a href="mailto:hello@chargedev.io" className="text-volt underline">
-              hello@chargedev.io
-            </a>
-            <br />
-            Legal and privacy:{" "}
-            <a
-              href="mailto:lasse.maki@kantocompany.com"
-              className="text-volt underline"
-            >
-              lasse.maki@kantocompany.com
+            General questions, legal and privacy:{" "}
+            <a href="mailto:support@chargedev.io" className="text-volt underline">
+              support@chargedev.io
             </a>
           </p>
         </Section>

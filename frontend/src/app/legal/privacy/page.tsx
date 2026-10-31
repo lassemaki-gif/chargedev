@@ -32,10 +32,10 @@ export default function PrivacyPage() {
           </p>
           <p>
             <a
-              href="mailto:lasse.maki@kantocompany.com"
+              href="mailto:support@chargedev.io"
               className="text-volt underline"
             >
-              lasse.maki@kantocompany.com
+              support@chargedev.io
             </a>
           </p>
         </Section>
@@ -267,10 +267,10 @@ export default function PrivacyPage() {
           <p>
             To exercise any of these rights, email{" "}
             <a
-              href="mailto:lasse.maki@kantocompany.com"
+              href="mailto:support@chargedev.io"
               className="text-volt underline"
             >
-              lasse.maki@kantocompany.com
+              support@chargedev.io
             </a>
             . We respond within 30 days.
           </p>
