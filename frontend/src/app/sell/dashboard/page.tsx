@@ -43,6 +43,11 @@ function SellerDashboardInner() {
   const [ocppOpen, setOcppOpen] = useState<number | null>(null);
   const [hostSessions, setHostSessions] = useState<Record<number, HostSessionOut | null>>({});
   const [hostSessionBusy, setHostSessionBusy] = useState<number | null>(null);
+  // Dev-only override: ?debug=1 forces the "Charge my car" button to appear on
+  // every listing regardless of whether Shelly/OCPP hardware is wired. Lets
+  // you see the UI without physical hardware; the backend will still return
+  // 400 "no connected metering hardware" when you tap it.
+  const debugMode = searchParams.get("debug") === "1";
   const [ocppChargePointId, setOcppChargePointId] = useState("");
   const [ocppStatus, setOcppStatus] = useState<Record<number, OcppChargePointStatus>>({});
   const [ocppSaving, setOcppSaving] = useState(false);
@@ -473,7 +478,9 @@ function SellerDashboardInner() {
                       <div className="text-ash text-xs">
                         {l.shelly_enabled || l.ocpp_enabled
                           ? "Print the QR for your charger. Charge your own car — up to 8 hours per session."
-                          : "Print the QR for your charger. Connect Shelly or OCPP to enable your own charging."}
+                          : debugMode
+                            ? <span className="text-yellow-400">⚠ Debug mode — button shows without hardware. Will fail on tap.</span>
+                            : "Print the QR for your charger. Connect Shelly or OCPP to enable your own charging."}
                       </div>
                       <div className="flex gap-2 shrink-0">
                         <Link
@@ -483,7 +490,7 @@ function SellerDashboardInner() {
                         >
                           QR code
                         </Link>
-                        {(l.shelly_enabled || l.ocpp_enabled) && (
+                        {(l.shelly_enabled || l.ocpp_enabled || debugMode) && (
                           <button
                             onClick={() => startHostSession(l.id)}
                             disabled={hostSessionBusy === l.id}
