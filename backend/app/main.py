@@ -1448,8 +1448,13 @@ async def create_joining_fee_payment(
     if current_user.joining_fee_paid is not False:
         return {"status": "already_paid"}
     try:
+        # Suffix the reference so each click mints a fresh checkout. SumUp
+        # treats a repeated reference as idempotent, so without this a second
+        # attempt lands the user on a stale/expired checkout URL that goes
+        # nowhere.
+        ref = f"joining-fee-{current_user.id}-{secrets.token_hex(4)}"
         checkout = await sumup.create_checkout(
-            checkout_reference=f"joining-fee-{current_user.id}",
+            checkout_reference=ref,
             amount_eur=Decimal("1.00"),
             description="ChargedEV host joining fee",
             redirect_url=f"{settings.frontend_url}/sell/dashboard?joining_fee={current_user.id}",
@@ -1477,11 +1482,11 @@ async def verify_joining_fee(
     except Exception as exc:
         logger.error("Joining fee verify failed: %s", exc)
         raise HTTPException(502, "Could not verify payment")
-    # The checkout_reference is "joining-fee-{user_id}"; cross-check so a user
-    # can't verify a different user's checkout.
-    expected_ref = f"joining-fee-{current_user.id}"
-    actual_ref = (result.get("raw") or {}).get("checkout_reference")
-    if actual_ref != expected_ref:
+    # The checkout_reference is "joining-fee-{user_id}-{nonce}"; prefix-check
+    # so a user can't verify a different user's checkout.
+    expected_prefix = f"joining-fee-{current_user.id}-"
+    actual_ref = (result.get("raw") or {}).get("checkout_reference") or ""
+    if not actual_ref.startswith(expected_prefix):
         raise HTTPException(403, "Payment does not belong to this account")
     if result.get("status") == "PAID":
         current_user.joining_fee_paid = True
@@ -1823,11 +1828,15 @@ async def sumup_webhook(
 
     ref = (result.get("raw") or {}).get("checkout_reference", "") or ""
 
-    # Joining fee path: reference is "joining-fee-{user_id}", no booking row.
+    # Joining fee path: reference is "joining-fee-{user_id}-{nonce}", no booking row.
     if ref.startswith("joining-fee-"):
+        parts = ref.split("-")
+        # ["joining", "fee", user_id, nonce]
+        if len(parts) < 3:
+            return JSONResponse({"received": True})
         try:
-            user_id = int(ref.split("-")[-1])
-        except (ValueError, IndexError):
+            user_id = int(parts[2])
+        except ValueError:
             return JSONResponse({"received": True})
         user = await session.get(User, user_id)
         if user and user.joining_fee_paid is False:
