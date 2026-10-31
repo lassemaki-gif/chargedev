@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus, PayoutAccount } from "@/lib/api";
+import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus, PayoutAccount, HostSessionOut } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
 function statusBadge(s: string) {
@@ -41,6 +41,8 @@ function SellerDashboardInner() {
   const [shellyStatus, setShellyStatus] = useState<Record<number, ShellyStatus>>({});
   const [shellySaving, setShellySaving] = useState(false);
   const [ocppOpen, setOcppOpen] = useState<number | null>(null);
+  const [hostSessions, setHostSessions] = useState<Record<number, HostSessionOut | null>>({});
+  const [hostSessionBusy, setHostSessionBusy] = useState<number | null>(null);
   const [ocppChargePointId, setOcppChargePointId] = useState("");
   const [ocppStatus, setOcppStatus] = useState<Record<number, OcppChargePointStatus>>({});
   const [ocppSaving, setOcppSaving] = useState(false);
@@ -62,6 +64,13 @@ function SellerDashboardInner() {
         setBookings(b);
         setEarnings(e);
         setPayoutAccount(p);
+        // Fire-and-forget per-listing host-session status so the "Charging now"
+        // panel is populated when the dashboard first renders.
+        for (const lst of l) {
+          api.hostSessionStatus(lst.id)
+            .then((hs) => setHostSessions((prev) => ({ ...prev, [lst.id]: hs })))
+            .catch(() => { /* ignore per-listing errors */ });
+        }
       })
       .catch((e) => {
         const msg: string = e.message ?? "";
@@ -70,6 +79,31 @@ function SellerDashboardInner() {
       })
       .finally(() => setLoading(false));
   }, [router]);
+
+  async function startHostSession(listingId: number) {
+    setHostSessionBusy(listingId);
+    try {
+      const hs = await api.hostSessionStart(listingId);
+      setHostSessions((prev) => ({ ...prev, [listingId]: hs }));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to start charging");
+    } finally {
+      setHostSessionBusy(null);
+    }
+  }
+
+  async function stopHostSession(listingId: number) {
+    if (!confirm("Stop charging now?")) return;
+    setHostSessionBusy(listingId);
+    try {
+      const hs = await api.hostSessionStop(listingId);
+      setHostSessions((prev) => ({ ...prev, [listingId]: hs.status === "completed" ? null : hs }));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to stop charging");
+    } finally {
+      setHostSessionBusy(null);
+    }
+  }
 
   async function savePayoutAccount() {
     setPayoutError(null);
@@ -392,6 +426,52 @@ function SellerDashboardInner() {
                     </button>
                   </div>
                 </div>
+
+                {/* My charger — host self-serve + QR */}
+                {(l.shelly_enabled || l.ocpp_enabled) && (
+                  <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
+                    {hostSessions[l.id] ? (
+                      <>
+                        <div className="text-sm">
+                          <span className="text-volt font-medium">⚡ Charging now</span>
+                          <span className="text-ash text-xs ml-2">
+                            {(hostSessions[l.id]!.energy_consumed_wh / 1000).toFixed(2)} kWh ·
+                            expires {new Date(hostSessions[l.id]!.expires_at).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => stopHostSession(l.id)}
+                          disabled={hostSessionBusy === l.id}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-900/30 text-red-400 hover:bg-red-900/50 disabled:opacity-40"
+                        >
+                          {hostSessionBusy === l.id ? "Stopping…" : "Stop charging"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-ash text-xs">
+                          Charge your own car — up to 8 hours per session, no booking needed.
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Link
+                            href={`/sell/listings/${l.id}/qr`}
+                            target="_blank"
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white"
+                          >
+                            QR code
+                          </Link>
+                          <button
+                            onClick={() => startHostSession(l.id)}
+                            disabled={hostSessionBusy === l.id}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-volt/10 text-volt border border-volt/20 hover:bg-volt/20 disabled:opacity-40"
+                          >
+                            {hostSessionBusy === l.id ? "Starting…" : "Charge my car"}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Shelly config panel */}
                 {shellyOpen === l.id && (
