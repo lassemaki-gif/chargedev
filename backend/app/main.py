@@ -34,16 +34,16 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, HostPayout, Listing, PACKAGES_KWH, Review,
+    Booking, BookingStatus, HostPayout, HostSession, Listing, PACKAGES_KWH, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from . import payouts, sumup
 from .schemas import (
-    BookingCreate, BookingOut, ForgotPasswordRequest, HostPayoutOut, ListingCreate,
-    ListingOut, LoginRequest, MarkPaidIn, OcppChargePointOut, OcppRegisterRequest,
-    PayoutAccountIn, PayoutAccountOut, PlatformStats, ProfileUpdate, RegisterRequest,
-    ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings, ShellyConfigRequest,
-    ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
+    BookingCreate, BookingOut, ChargeStartContext, ForgotPasswordRequest, HostPayoutOut,
+    HostSessionOut, ListingCreate, ListingOut, LoginRequest, MarkPaidIn, OcppChargePointOut,
+    OcppRegisterRequest, PayoutAccountIn, PayoutAccountOut, PlatformStats, ProfileUpdate,
+    RegisterRequest, ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings,
+    ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
 )
 
 
@@ -359,10 +359,92 @@ async def _ocpp_start_session(booking: Booking, listing: Listing) -> None:
         logger.info("OCPP session started for booking %d (id_tag=%s)", booking.id, id_tag)
 
 
+async def _booking_expiry_sweep() -> None:
+    """Every minute: (a) cancel+refund bookings past their 30-min start window,
+    (b) stop host sessions past their 8-hour cap. Belt-and-braces for the
+    in-request checks in buyer_start_session / host_session_start."""
+    from .db import async_session
+    POLL_INTERVAL = 60  # seconds
+
+    while True:
+        await asyncio.sleep(POLL_INTERVAL)
+        try:
+            now = datetime.utcnow()
+
+            # (b) Host sessions past their 8h cap: turn relay off + mark completed.
+            async with async_session() as sess:
+                stale_hs = (await sess.execute(
+                    select(HostSession).where(
+                        HostSession.status == "active",
+                        HostSession.expires_at < now,
+                    ).limit(20)
+                )).scalars().all()
+            for hs in stale_hs:
+                try:
+                    async with async_session() as sess2:
+                        listing = await sess2.get(Listing, hs.listing_id)
+                    if hs.kind == "shelly" and listing and listing.shelly_auth_key:
+                        try:
+                            auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
+                            client = ShellyClient(listing.shelly_server, auth_key, listing.shelly_device_id)
+                            ds = await client.status()
+                            if ds:
+                                hs.energy_consumed_wh = max(0.0, _shelly_energy_wh(ds) - hs.energy_start_wh)
+                            await client.relay(False)
+                        except Exception as exc:
+                            logger.warning("Expiry sweep: Shelly stop failed for host session %d: %s", hs.id, exc)
+                    async with async_session() as sess2:
+                        row = await sess2.get(HostSession, hs.id)
+                        if row and row.status == "active":
+                            row.status = "completed"
+                            row.stopped_at = now
+                            row.energy_consumed_wh = hs.energy_consumed_wh
+                            await sess2.commit()
+                            logger.info("Expiry sweep: host session %d auto-stopped at 8h cap", hs.id)
+                except Exception as exc:
+                    logger.error("Expiry sweep host-session error %d: %s", hs.id, exc)
+
+            # (a) Expired unstarted bookings: cancel + refund via SumUp.
+            async with async_session() as sess:
+                expired = (await sess.execute(
+                    select(Booking).where(
+                        Booking.status == BookingStatus.confirmed,
+                        Booking.started_at.is_(None),
+                        Booking.expires_at.isnot(None),
+                        Booking.expires_at < now,
+                    ).limit(20)  # cap per tick so we don't gobble a connection
+                )).scalars().all()
+            for b in expired:
+                try:
+                    txn_id = None
+                    if b.stripe_session_id:
+                        try:
+                            verif = await sumup.verify_checkout(b.stripe_session_id)
+                            txn_id = verif.get("transaction_id")
+                        except Exception as exc:
+                            logger.warning("Expiry sweep: SumUp verify failed for booking %d: %s", b.id, exc)
+                    if txn_id:
+                        try:
+                            await sumup.refund(txn_id, amount_eur=Decimal(f"{b.total_eur:.2f}"))
+                        except Exception as exc:
+                            logger.error("Expiry sweep: refund failed for booking %d (txn=%s): %s", b.id, txn_id, exc)
+                    async with async_session() as sess2:
+                        row = await sess2.get(Booking, b.id)
+                        if row and row.status == BookingStatus.confirmed and row.started_at is None:
+                            row.status = BookingStatus.cancelled
+                            await sess2.commit()
+                            logger.info("Expiry sweep: booking %d cancelled (expired, refund attempted)", b.id)
+                except Exception as exc:
+                    logger.error("Expiry sweep inner error for booking %d: %s", b.id, exc)
+        except Exception as exc:
+            logger.warning("Expiry sweep loop error: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
     asyncio.create_task(_shelly_poll_loop())
+    asyncio.create_task(_booking_expiry_sweep())
     yield
 
 
@@ -2017,8 +2099,11 @@ async def sumup_webhook(
     if b.status != BookingStatus.pending:
         return JSONResponse({"received": True})  # already confirmed by verify endpoint
 
+    now = datetime.utcnow()
     b.status = BookingStatus.confirmed
     b.pin_code = _gen_pin()
+    b.confirmed_at = now
+    b.expires_at = now + timedelta(minutes=30)
     await session.commit()
     logger.info("Booking %d confirmed via SumUp webhook", b.id)
 
@@ -2031,12 +2116,11 @@ async def sumup_webhook(
             if host:
                 await send_host_booking_email(host.email, host.full_name, b, listing, buyer)
         await _transfer_to_host(b, session)
-        if listing and listing.ocpp_charge_point_id:
-            asyncio.create_task(_ocpp_start_session(b, listing))
-        elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
-            asyncio.create_task(_shelly_start_session(b, listing))
     except Exception as exc:
         logger.error("SumUp webhook post-confirm actions failed for booking %d: %s", b.id, exc)
+    # NOTE: the physical charging session is NOT started here. The buyer scans
+    # the charger's QR code and taps "Start charging" on /charge/{id}/start.
+    # That triggers OCPP RemoteStart / Shelly relay-on via a dedicated endpoint.
 
     return JSONResponse({"received": True})
 
@@ -2068,8 +2152,11 @@ async def verify_checkout(
             host = await session.get(User, listing.seller_id) if listing else None
             result = await sumup.verify_checkout(b.stripe_session_id)
             if result.get("status") == "PAID" and b.status == BookingStatus.pending:
+                now = datetime.utcnow()
                 b.status = BookingStatus.confirmed
                 b.pin_code = _gen_pin()
+                b.confirmed_at = now
+                b.expires_at = now + timedelta(minutes=30)
                 await session.commit()
                 logger.info("Booking %d confirmed via verify endpoint", b.id)
                 if listing:
@@ -2077,10 +2164,8 @@ async def verify_checkout(
                 if host and listing:
                     await send_host_booking_email(host.email, host.full_name, b, listing, current_user)
                 await _transfer_to_host(b, session)
-                if listing and listing.ocpp_charge_point_id:
-                    asyncio.create_task(_ocpp_start_session(b, listing))
-                elif listing and listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
-                    asyncio.create_task(_shelly_start_session(b, listing))
+                # Physical session is NOT started here — buyer must press Start
+                # on /charge/{id}/start after arriving at the charger.
         except Exception as exc:
             logger.error("SumUp verify error for booking %d: %s", booking_id, exc)
 
@@ -2101,6 +2186,293 @@ async def get_booking(
     b.listing = await session.get(Listing, b.listing_id)
     b.buyer = current_user
     return _booking_out(b, show_pin=True)
+
+
+# ── Charging session control (buyer + host) ──────────────────────────────────
+
+async def _any_booking_imminent(session: AsyncSession, listing_id: int, within_minutes: int = 60) -> bool:
+    """True if a confirmed/active booking on this listing is live or starts
+    within `within_minutes`. Used to block host sessions when a buyer booking
+    is about to need the charger."""
+    now = datetime.utcnow()
+    horizon = now + timedelta(minutes=within_minutes)
+    stmt = select(Booking).where(
+        Booking.listing_id == listing_id,
+        Booking.status.in_((BookingStatus.confirmed, BookingStatus.active)),
+        # confirmed but not yet started, within the 30-min window OR within the look-ahead;
+        # active bookings are always imminent (they're happening now).
+        (Booking.started_at.is_(None) & (Booking.expires_at >= now) & (Booking.confirmed_at <= horizon))
+        | (Booking.started_at.isnot(None) & (Booking.completed_at.is_(None))),
+    ).limit(1)
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+@app.post("/api/charge/{booking_id}/start")
+async def buyer_start_session(
+    booking_id: int,
+    current_user: User = Depends(require_role("buyer", "seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    """Buyer presses "Start charging" after arriving at the charger. Fires
+    OCPP RemoteStart or Shelly relay-on. Enforces the 30-minute post-payment
+    window; expired bookings auto-cancel + refund here."""
+    b = (await session.execute(
+        select(Booking).where(Booking.id == booking_id).with_for_update()
+    )).scalar_one_or_none()
+    if not b or b.buyer_id != current_user.id:
+        raise HTTPException(404, "Booking not found")
+    if b.status == BookingStatus.active or b.started_at:
+        return {"status": "already_started"}
+    if b.status != BookingStatus.confirmed:
+        raise HTTPException(400, f"Cannot start — booking is {b.status}")
+
+    now = datetime.utcnow()
+    if b.expires_at and now > b.expires_at:
+        # Expired: auto-cancel + refund (defence in depth; the background sweep
+        # usually gets there first, but race here just in case).
+        b.status = BookingStatus.cancelled
+        await session.commit()
+        if b.stripe_session_id:
+            try:
+                verif = await sumup.verify_checkout(b.stripe_session_id)
+                txn = verif.get("transaction_id")
+                if txn:
+                    await sumup.refund(txn, amount_eur=Decimal(f"{b.total_eur:.2f}"))
+            except Exception as exc:
+                logger.error("Expired-booking refund failed for %d: %s", b.id, exc)
+        raise HTTPException(410, "This booking expired (30-min start window). You've been refunded.")
+
+    listing = await session.get(Listing, b.listing_id)
+    if not listing:
+        raise HTTPException(500, "Listing not found")
+
+    b.started_at = now
+    b.status = BookingStatus.active
+    await session.commit()
+
+    if listing.ocpp_charge_point_id:
+        asyncio.create_task(_ocpp_start_session(b, listing))
+    elif listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+        asyncio.create_task(_shelly_start_session(b, listing))
+    else:
+        logger.warning("Booking %d: listing has no metered hardware; session won't auto-stop", b.id)
+    return {"status": "started"}
+
+
+@app.get("/api/charge/{listing_id}/context", response_model=ChargeStartContext)
+async def charge_start_context(
+    listing_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Payload for the QR landing page — tells the frontend whether the viewer
+    is the host, a buyer with an eligible booking, or neither."""
+    listing = await session.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(404, "Listing not found")
+
+    # Host branch
+    if current_user.id == listing.seller_id:
+        hs = (await session.execute(
+            select(HostSession).where(
+                HostSession.listing_id == listing_id,
+                HostSession.status == "active",
+            )
+        )).scalar_one_or_none()
+        return ChargeStartContext(
+            listing_id=listing.id,
+            listing_title=listing.title,
+            listing_address=listing.address,
+            role="host",
+            host_session_active=hs is not None,
+        )
+
+    # Buyer branch: find the most recent eligible (confirmed, not expired) booking
+    now = datetime.utcnow()
+    b = (await session.execute(
+        select(Booking)
+        .where(
+            Booking.listing_id == listing_id,
+            Booking.buyer_id == current_user.id,
+            Booking.status.in_((BookingStatus.confirmed, BookingStatus.active)),
+        )
+        .order_by(Booking.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if b and b.expires_at and b.expires_at > now:
+        return ChargeStartContext(
+            listing_id=listing.id,
+            listing_title=listing.title,
+            listing_address=listing.address,
+            role="buyer",
+            booking_id=b.id,
+            booking_pin=b.pin_code,
+            booking_expires_at=b.expires_at,
+            booking_status=b.status.value if hasattr(b.status, "value") else str(b.status),
+            booking_package_kwh=b.package_kwh,
+        )
+
+    return ChargeStartContext(
+        listing_id=listing.id,
+        listing_title=listing.title,
+        listing_address=listing.address,
+        role="none",
+    )
+
+
+# Host-session endpoints ─────────────────────────────────────────────────────
+
+HOST_SESSION_MAX_HOURS = 8
+
+
+@app.post("/api/seller/listings/{listing_id}/host-session/start", response_model=HostSessionOut)
+async def host_session_start(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+
+    # Block if there's already a live host session
+    existing = (await session.execute(
+        select(HostSession).where(
+            HostSession.listing_id == listing_id,
+            HostSession.status == "active",
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return HostSessionOut.model_validate({
+            "id": existing.id, "listing_id": existing.listing_id, "kind": existing.kind,
+            "status": existing.status, "started_at": existing.started_at,
+            "expires_at": existing.expires_at, "stopped_at": existing.stopped_at,
+            "energy_consumed_wh": existing.energy_consumed_wh,
+        })
+
+    # Block if a buyer booking is active or imminent
+    if await _any_booking_imminent(session, listing_id):
+        raise HTTPException(409, "A buyer booking is active or starting within the next 60 minutes.")
+
+    now = datetime.utcnow()
+    expires_at = now + timedelta(hours=HOST_SESSION_MAX_HOURS)
+
+    # Choose kind + fire the physical start
+    if listing.ocpp_charge_point_id:
+        kind = "ocpp"
+        energy_start_wh = 0.0
+    elif listing.shelly_device_id and listing.shelly_auth_key and listing.shelly_server:
+        kind = "shelly"
+        try:
+            auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
+            client = ShellyClient(listing.shelly_server, auth_key, listing.shelly_device_id)
+            ds = await client.status()
+            energy_start_wh = _shelly_energy_wh(ds) if ds else 0.0
+            ok = await client.relay(True)
+            if not ok:
+                raise HTTPException(502, "Could not turn on charger (Shelly relay rejected).")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Shelly host-session start failed for listing %d: %s", listing_id, exc)
+            raise HTTPException(502, "Could not reach the charger.")
+    else:
+        raise HTTPException(400, "This listing has no connected metering hardware.")
+
+    hs = HostSession(
+        listing_id=listing_id,
+        host_id=current_user.id,
+        kind=kind,
+        status="active",
+        started_at=now,
+        expires_at=expires_at,
+        energy_start_wh=energy_start_wh,
+    )
+    session.add(hs)
+    await session.commit()
+    await session.refresh(hs)
+
+    if kind == "ocpp":
+        # Fire RemoteStartTransaction with a host-specific idTag
+        cp_handler = _ocpp_connections.get(listing.ocpp_charge_point_id)
+        if cp_handler:
+            asyncio.create_task(cp_handler.remote_start(f"host{current_user.id:06d}"))
+
+    return HostSessionOut.model_validate({
+        "id": hs.id, "listing_id": hs.listing_id, "kind": hs.kind, "status": hs.status,
+        "started_at": hs.started_at, "expires_at": hs.expires_at, "stopped_at": hs.stopped_at,
+        "energy_consumed_wh": hs.energy_consumed_wh,
+    })
+
+
+@app.post("/api/seller/listings/{listing_id}/host-session/stop", response_model=HostSessionOut)
+async def host_session_stop(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+
+    hs = (await session.execute(
+        select(HostSession).where(
+            HostSession.listing_id == listing_id,
+            HostSession.status == "active",
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if not hs:
+        raise HTTPException(404, "No active host session on this listing")
+
+    if hs.kind == "shelly" and listing.shelly_auth_key:
+        try:
+            auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
+            client = ShellyClient(listing.shelly_server, auth_key, listing.shelly_device_id)
+            ds = await client.status()
+            current_wh = _shelly_energy_wh(ds) if ds else hs.energy_start_wh
+            hs.energy_consumed_wh = max(0.0, current_wh - hs.energy_start_wh)
+            await client.relay(False)
+        except Exception as exc:
+            logger.error("Shelly host-session stop error: %s", exc)
+    elif hs.kind == "ocpp":
+        # OCPP RemoteStopTransaction needs the charger's own transaction_id,
+        # which we don't track for host sessions in this iteration. Rely on
+        # the user to physically unplug — the OCPP charger will send
+        # StopTransaction on its own. Mark the DB row stopped either way.
+        logger.info("OCPP host session %d marked stopped (unplug to stop physical session)", hs.id)
+
+    hs.status = "completed"
+    hs.stopped_at = datetime.utcnow()
+    await session.commit()
+    return HostSessionOut.model_validate({
+        "id": hs.id, "listing_id": hs.listing_id, "kind": hs.kind, "status": hs.status,
+        "started_at": hs.started_at, "expires_at": hs.expires_at, "stopped_at": hs.stopped_at,
+        "energy_consumed_wh": hs.energy_consumed_wh,
+    })
+
+
+@app.get("/api/seller/listings/{listing_id}/host-session", response_model=Optional[HostSessionOut])
+async def host_session_status(
+    listing_id: int,
+    current_user: User = Depends(require_role("seller", "admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    listing = await session.get(Listing, listing_id)
+    if not listing or listing.seller_id != current_user.id:
+        raise HTTPException(404, "Listing not found")
+    hs = (await session.execute(
+        select(HostSession).where(
+            HostSession.listing_id == listing_id,
+            HostSession.status == "active",
+        )
+    )).scalar_one_or_none()
+    if not hs:
+        return None
+    return HostSessionOut.model_validate({
+        "id": hs.id, "listing_id": hs.listing_id, "kind": hs.kind, "status": hs.status,
+        "started_at": hs.started_at, "expires_at": hs.expires_at, "stopped_at": hs.stopped_at,
+        "energy_consumed_wh": hs.energy_consumed_wh,
+    })
 
 
 # ── Reviews ───────────────────────────────────────────────────────────────────

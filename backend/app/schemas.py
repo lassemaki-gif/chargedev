@@ -282,6 +282,33 @@ class MarkPaidIn(BaseModel):
     sepa_reference: Optional[str] = None
 
 
+class HostSessionOut(BaseModel):
+    id: int
+    listing_id: int
+    kind: str
+    status: str
+    started_at: datetime
+    expires_at: datetime
+    stopped_at: Optional[datetime] = None
+    energy_consumed_wh: float
+
+
+class ChargeStartContext(BaseModel):
+    """Payload returned to the QR landing page so it can branch without
+    multiple round-trips. role tells the frontend which action is available;
+    booking is populated only when the viewer is the booking's buyer."""
+    listing_id: int
+    listing_title: str
+    listing_address: str
+    role: str  # "host" | "buyer" | "none"
+    booking_id: Optional[int] = None
+    booking_pin: Optional[str] = None
+    booking_expires_at: Optional[datetime] = None
+    booking_status: Optional[str] = None
+    booking_package_kwh: Optional[int] = None
+    host_session_active: bool = False
+
+
 class StripeOnboardResponse(BaseModel):
     url: str
 

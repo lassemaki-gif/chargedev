@@ -73,6 +73,23 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMP",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS started_at TIMESTAMP",
+                    """CREATE TABLE IF NOT EXISTS host_sessions (
+                        id SERIAL PRIMARY KEY,
+                        listing_id INTEGER NOT NULL REFERENCES listings(id),
+                        host_id INTEGER NOT NULL REFERENCES users(id),
+                        kind VARCHAR(10) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        started_at TIMESTAMP DEFAULT NOW(),
+                        expires_at TIMESTAMP NOT NULL,
+                        stopped_at TIMESTAMP,
+                        energy_start_wh FLOAT NOT NULL DEFAULT 0,
+                        energy_consumed_wh FLOAT NOT NULL DEFAULT 0
+                    )""",
+                    "CREATE INDEX IF NOT EXISTS ix_host_sessions_listing_id ON host_sessions (listing_id)",
+                    "CREATE INDEX IF NOT EXISTS ix_host_sessions_status ON host_sessions (status)",
                     # Clear any legacy plaintext verification tokens so a backup
                     # restore of old rows can't hand an attacker a usable link.
                     # The column now holds a sha256 hex; any previously-stored

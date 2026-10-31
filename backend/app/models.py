@@ -139,6 +139,14 @@ class Booking(Base):
     pin_code: Mapped[Optional[str]] = mapped_column(String(6))
     scheduled_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Set when the booking first flips to confirmed. expires_at = confirmed_at + 30 min:
+    # the buyer must press "Start charging" from the QR landing page before this
+    # window closes, otherwise a background sweep auto-cancels + refunds.
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Stamped once the buyer actually presses Start — distinguishes "paid"
+    # (status=confirmed, pin issued) from "charging" (status=active, started_at set).
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     paid_out: Mapped[bool] = mapped_column(Boolean, default=False)
     paid_out_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
@@ -195,6 +203,26 @@ class ShellySession(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | completed | error
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+class HostSession(Base):
+    """A charging session the HOST starts for their own vehicle. No booking,
+    no money. Capped at 8 hours by expires_at so a forgotten session can't
+    burn electricity overnight. The Shelly / OCPP poll loop stops the relay
+    when expires_at passes.
+    """
+    __tablename__ = "host_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), nullable=False, index=True)
+    host_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)  # "shelly" | "ocpp"
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active | completed | error
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    energy_start_wh: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    energy_consumed_wh: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
 
 class HostPayout(Base):
