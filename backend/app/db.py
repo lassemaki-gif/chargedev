@@ -87,6 +87,12 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     )""",
                     "CREATE INDEX IF NOT EXISTS ix_host_payouts_host_id ON host_payouts (host_id)",
                     "CREATE INDEX IF NOT EXISTS ix_host_payouts_status ON host_payouts (status)",
+                    # Belt-and-braces against the race in payouts.generate_batch:
+                    # at most one 'pending' row per host at any time. The advisory
+                    # lock in generate_batch serialises callers; this index is the
+                    # fallback that rejects a second row even if the lock misfires.
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_host_payouts_pending_per_host "
+                    "ON host_payouts (host_id) WHERE status = 'pending'",
                     "ALTER TABLE listings ADD COLUMN IF NOT EXISTS ocpp_charge_point_id VARCHAR(255)",
                     "CREATE UNIQUE INDEX IF NOT EXISTS ix_listings_ocpp_charge_point_id ON listings (ocpp_charge_point_id) WHERE ocpp_charge_point_id IS NOT NULL",
                     """CREATE TABLE IF NOT EXISTS ocpp_charge_points (

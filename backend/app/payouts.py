@@ -30,10 +30,31 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Booking, BookingStatus, HostPayout, Listing, User
+
+
+# Advisory lock key for serializing concurrent generate_batch runs.
+# `pg_advisory_xact_lock` releases automatically at transaction end;
+# any 64-bit int works as the key — this one is just a stable hash of
+# the string "chargedev:host_payouts_generate".
+_GENERATE_BATCH_LOCK_KEY = 7318926431_201457502
+
+
+# Formula-injection sentinels. Any CSV cell whose first character is one
+# of these would be evaluated as a formula by Excel / LibreOffice when the
+# file is opened — including the inline bank-upload previewers. We prefix
+# such cells with a single quote so the spreadsheet treats them as text.
+_FORMULA_INJECTION_CHARS = {"=", "+", "-", "@", "\t", "\r"}
+
+
+def _csv_safe(cell: str) -> str:
+    """Neutralise CSV formula injection in a single cell."""
+    if cell and cell[0] in _FORMULA_INJECTION_CHARS:
+        return "'" + cell
+    return cell
 
 
 async def pending_by_host(session: AsyncSession) -> list[dict]:
@@ -99,7 +120,25 @@ async def generate_batch(
     that, after the admin confirms the SEPA transfer actually ran. The booking
     is "locked" via the booking_ids_json array: generate_batch skips bookings
     that already appear in a pending-or-paid HostPayout.
+
+    Serialised via a Postgres transaction advisory lock so two concurrent
+    callers (admin double-click, UI retry) can't both insert HostPayout rows
+    for the same host and have the admin accidentally pay them twice.
     """
+    # Advisory lock + the partial unique index on (host_id) WHERE status='pending'
+    # together make this operation safe under concurrency. The lock serialises
+    # the generation attempt; the index is the belt-and-braces fallback that
+    # would reject a second insert even if the lock were somehow released early.
+    try:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:k)"),
+            {"k": _GENERATE_BATCH_LOCK_KEY},
+        )
+    except Exception:
+        # On SQLite in local dev the function doesn't exist — fine; it's a
+        # single-process context there anyway.
+        pass
+
     pending = await pending_by_host(session)
 
     # Collect every booking_id already locked in a non-cancelled payout row,
@@ -185,12 +224,13 @@ def to_csv(
         if not iban:
             continue  # skip rows we can't fill — admin will see it missing and fix the IBAN
         ref = f"{reference_prefix} #{p.id}"
+        name = p.account_holder or (host.full_name if host else "")
         writer.writerow([
-            iban,
-            p.account_holder or (host.full_name if host else ""),
-            f"{p.net_eur:.2f}",
+            _csv_safe(iban),
+            _csv_safe(name),
+            _csv_safe(f"{p.net_eur:.2f}"),
             "EUR",
-            ref,
+            _csv_safe(ref),
         ])
 
     return buf.getvalue()

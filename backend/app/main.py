@@ -1001,10 +1001,29 @@ async def seller_earnings(
 
 # ── Host payout account (SumUp era: manual SEPA batches to host IBANs) ────────
 
+_IBAN_SHAPE_RE = re.compile(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
+# Latin-1 Supplement + Latin Extended covers Finnish, Swedish, etc.;
+# allows apostrophe, hyphen, period, and space for compound names.
+_ACCOUNT_HOLDER_RE = re.compile(r"[A-Za-zÀ-ÿ'\.\- ]{2,120}$")
+
+
 def _normalize_iban(raw: str) -> str:
-    """Strip spaces and uppercase. Does not validate the checksum; frontend plus
-    SumUp's own payout flow will catch malformed values."""
+    """Strip whitespace and uppercase. Shape and mod-97 are validated separately."""
     return "".join(raw.split()).upper()
+
+
+def _iban_mod97_ok(iban: str) -> bool:
+    """Standard IBAN mod-97 checksum (ISO 13616). Returns True on pass."""
+    # Move the first 4 chars to the end, convert letters A=10..Z=35 to digits,
+    # then check the integer is 1 modulo 97.
+    rearranged = iban[4:] + iban[:4]
+    numeric = "".join(
+        str(ord(c) - 55) if c.isalpha() else c for c in rearranged
+    )
+    try:
+        return int(numeric) % 97 == 1
+    except ValueError:
+        return False
 
 
 def _encrypt_iban(iban: str) -> str:
@@ -1049,11 +1068,16 @@ async def set_payout_account(
     session: AsyncSession = Depends(get_session),
 ):
     iban = _normalize_iban(body.iban)
-    if len(iban) < 15 or len(iban) > 34 or not iban[:2].isalpha():
+    if not _IBAN_SHAPE_RE.match(iban):
         raise HTTPException(400, "IBAN looks malformed — check the country prefix and length.")
+    if not _iban_mod97_ok(iban):
+        raise HTTPException(400, "IBAN checksum failed — please double-check the number.")
     holder = (body.account_holder or "").strip()
-    if len(holder) < 2:
-        raise HTTPException(400, "Account holder name is required.")
+    if not _ACCOUNT_HOLDER_RE.match(holder):
+        raise HTTPException(
+            400,
+            "Account holder name must be 2–120 characters, letters and standard punctuation only.",
+        )
     current_user.iban = _encrypt_iban(iban)
     current_user.payout_account_holder = holder
     await session.commit()
