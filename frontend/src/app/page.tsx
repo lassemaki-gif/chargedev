@@ -116,7 +116,7 @@ export default function Landing() {
             { n: "€0.30", label: "per kWh in Finland" },
             { n: "80%", label: "goes to the host" },
             { n: "4 sizes", label: "20 · 40 · 60 · 80 kWh" },
-            { n: "6-digit PIN", label: "secure session access" },
+            { n: "Scan to start", label: "QR at every charger" },
           ].map((s) => (
             <div key={s.n}>
               <div className="text-2xl sm:text-3xl font-bold text-white">{s.n}</div>
@@ -136,8 +136,8 @@ export default function Landing() {
             <div className="space-y-6">
               {[
                 { n: "01", t: "List your charger", b: "Register, add your address, charger type, and set your price per kWh. Takes 5 minutes." },
-                { n: "02", t: "Accept bookings", b: "Buyers pick a package (20–80 kWh) and pay upfront. You get notified instantly." },
-                { n: "03", t: "Share the PIN", b: "A secure 6-digit PIN is generated per booking. Share it, they charge, you earn." },
+                { n: "02", t: "Print the QR sticker", b: "One QR per listing — generate it from your dashboard and stick it on the charger. Buyers scan it to start." },
+                { n: "03", t: "Get paid weekly", b: "80% of each booking net of VAT. We settle to your IBAN by SEPA every week — no payment admin." },
               ].map((s) => (
                 <div key={s.n} className="flex gap-5">
                   <span className="font-mono text-volt text-sm mt-1 shrink-0">{s.n}</span>
@@ -159,7 +159,7 @@ export default function Landing() {
               {[
                 { n: "01", t: "Find a charger", b: "Browse available home chargers by city. See power, charger type, and price upfront." },
                 { n: "02", t: "Choose a package", b: "Pick 20, 40, 60, or 80 kWh. Pay instantly. No hourly guesswork — you know the cost." },
-                { n: "03", t: "Get your PIN, start charging", b: "A 6-digit PIN unlocks your session. Plug in and go." },
+                { n: "03", t: "Scan QR, tap Start", b: "Plug in, scan the charger's QR, tap Start. Your session stops automatically at the booked kWh." },
               ].map((s) => (
                 <div key={s.n} className="flex gap-5">
                   <span className="font-mono text-blue-400 text-sm mt-1 shrink-0">{s.n}</span>
@@ -215,8 +215,8 @@ export default function Landing() {
       <section className="border-t border-border px-6 lg:px-16 py-24">
         <div className="grid sm:grid-cols-3 gap-8 max-w-3xl">
           {[
-            { icon: "🔐", t: "PIN-secured sessions", b: "Every booking generates a unique 6-digit PIN. No PIN, no charge." },
-            { icon: "⚡", t: "Instant confirmation", b: "Your PIN arrives the moment payment clears — no waiting, no back-and-forth." },
+            { icon: "📱", t: "Scan to start", b: "Every charger has a printed QR. Scan it to start your paid session — no scan, no energy flows." },
+            { icon: "⚡", t: "Instant confirmation", b: "Your QR + backup PIN arrive the moment payment clears — no waiting, no back-and-forth." },
             { icon: "🌍", t: "Available across Europe", b: "Covering EU, UK, Norway, Switzerland and Iceland." },
           ].map((f) => (
             <div key={f.t} className="flex flex-col gap-3">
