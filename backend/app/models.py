@@ -56,6 +56,10 @@ class User(Base):
     # spoofed source IP can't dodge the counter.
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Session invalidation anchor: any JWT with `iat` earlier than this value
+    # is treated as revoked. Stamped on password reset, password change, and
+    # on any admin-triggered "log out everywhere" action.
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

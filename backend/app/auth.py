@@ -24,9 +24,16 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: int, role: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.access_token_expire_minutes)
     return jwt.encode(
-        {"sub": str(user_id), "role": role, "typ": "session", "exp": expire},
+        {
+            "sub": str(user_id),
+            "role": role,
+            "typ": "session",
+            "iat": int(now.timestamp()),
+            "exp": expire,
+        },
         settings.secret_key,
         algorithm=JWT_ALGORITHM,
     )
@@ -47,6 +54,7 @@ async def get_current_user(
         if payload.get("typ") not in (None, "session"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         user_id = int(payload["sub"])
+        iat = payload.get("iat")
     except HTTPException:
         raise
     except (JWTError, KeyError, ValueError):
@@ -54,6 +62,12 @@ async def get_current_user(
     user = await session.get(User, user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    # Invalidate every session minted before the account's last password change
+    # (or admin-triggered logout-all, which also stamps this field). Tokens
+    # without an `iat` are legacy — accept them until they naturally expire.
+    if iat is not None and user.password_changed_at is not None:
+        if iat < int(user.password_changed_at.replace(tzinfo=timezone.utc).timestamp()):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired, please sign in again")
     return user
 
 

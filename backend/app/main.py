@@ -861,6 +861,13 @@ async def reset_password(request: Request, body: ResetPasswordRequest, session: 
     user.hashed_password = hash_password(body.new_password)
     user.password_reset_hash = None
     user.password_reset_expires = None
+    # Invalidate every session minted before this reset (see auth.get_current_user).
+    # A stolen JWT with a background refresh loop can no longer survive the reset.
+    user.password_changed_at = datetime.utcnow()
+    # Also clear any pending lockout so the user can log back in immediately
+    # with their new password.
+    user.failed_login_count = 0
+    user.locked_until = None
     await session.commit()
     logger.info("Password reset completed for user %d", user.id)
     return {"ok": True}
