@@ -430,13 +430,13 @@ function SellerDashboardInner() {
                     </Link>
                     <button
                       onClick={() => openOcpp(l)}
-                      className={`hidden sm:block px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${l.ocpp_enabled ? "bg-blue-900/30 border-blue-700 text-blue-400" : "bg-surface border-border text-ash hover:text-white hover:border-blue-700/40"}`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${l.ocpp_enabled ? "bg-blue-900/30 border-blue-700 text-blue-400" : "bg-surface border-border text-ash hover:text-white hover:border-blue-700/40"}`}
                     >
                       {l.ocpp_enabled ? "OCPP ✓" : "OCPP"}
                     </button>
                     <button
                       onClick={() => openShelly(l)}
-                      className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface border border-border text-ash hover:text-white hover:border-volt/40 transition-colors"
                     >
                       {l.shelly_enabled ? "Shelly ✓" : "Shelly"}
                     </button>
