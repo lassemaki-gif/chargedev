@@ -63,7 +63,11 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # sha256 hex of the raw token sent in the verification email. The raw
+    # token lives only in the user's inbox and the backend sees it once per
+    # verification attempt — a DB breach cannot leak a usable verification link.
     verification_token: Mapped[Optional[str]] = mapped_column(String(64))
+    verification_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime)
     password_reset_hash: Mapped[Optional[str]] = mapped_column(String(128))  # sha256 of raw token
     password_reset_expires: Mapped[Optional[datetime]] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -72,6 +72,12 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMP",
+                    # Clear any legacy plaintext verification tokens so a backup
+                    # restore of old rows can't hand an attacker a usable link.
+                    # The column now holds a sha256 hex; any previously-stored
+                    # plaintext would fail the hash check anyway.
+                    "UPDATE users SET verification_token = NULL WHERE verification_token IS NOT NULL AND LENGTH(verification_token) <> 64",
                     """CREATE TABLE IF NOT EXISTS host_payouts (
                         id SERIAL PRIMARY KEY,
                         host_id INTEGER NOT NULL REFERENCES users(id),

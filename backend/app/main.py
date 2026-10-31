@@ -779,9 +779,12 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
     session.add(user)
     await session.commit()
     await session.refresh(user)
-    # Generate verification token and send email
+    # Generate verification token and send email. We store only the sha256 of
+    # the token so a DB breach doesn't hand attackers usable verification links;
+    # the raw token lives only in the user's inbox.
     verification_token = secrets.token_urlsafe(32)
-    user.verification_token = verification_token
+    user.verification_token = hashlib.sha256(verification_token.encode()).hexdigest()
+    user.verification_token_expires = datetime.utcnow() + timedelta(hours=24)
     await session.commit()
     asyncio.create_task(send_verification_email(user.email, user.full_name, verification_token))
     return TokenResponse(
@@ -887,14 +890,21 @@ async def logout():
 
 
 @app.get("/api/auth/verify-email")
-async def verify_email(token: str, session: AsyncSession = Depends(get_session)):
+@limiter.limit("30/hour")
+async def verify_email(request: Request, token: str, session: AsyncSession = Depends(get_session)):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
     user = (await session.execute(
-        select(User).where(User.verification_token == token)
+        select(User).where(User.verification_token == token_hash)
     )).scalar_one_or_none()
-    if not user:
+    if (
+        not user
+        or not user.verification_token_expires
+        or user.verification_token_expires < datetime.utcnow()
+    ):
         raise HTTPException(400, "Invalid or expired verification token")
     user.email_verified = True
     user.verification_token = None
+    user.verification_token_expires = None
     await session.commit()
     return {"ok": True, "email": user.email}
 
