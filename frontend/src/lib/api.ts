@@ -81,6 +81,18 @@ export const api = {
   completeBooking: (id: number) => req<{ status: string }>("PUT", `/api/seller/bookings/${id}/complete`),
   adminRetryTransfer: (bookingId: number) => req<{ booking_id: number; transfer_id: string; amount_eur: number; paid_out: boolean }>("POST", `/api/admin/bookings/${bookingId}/retry-transfer`),
 
+  // Charging session control
+  chargeContext: (listingId: number) =>
+    req<ChargeStartContext>("GET", `/api/charge/${listingId}/context`),
+  buyerStartSession: (bookingId: number) =>
+    req<{ status: string }>("POST", `/api/charge/${bookingId}/start`),
+  hostSessionStart: (listingId: number) =>
+    req<HostSessionOut>("POST", `/api/seller/listings/${listingId}/host-session/start`),
+  hostSessionStop: (listingId: number) =>
+    req<HostSessionOut>("POST", `/api/seller/listings/${listingId}/host-session/stop`),
+  hostSessionStatus: (listingId: number) =>
+    req<HostSessionOut | null>("GET", `/api/seller/listings/${listingId}/host-session`),
+
   // Payout batches (SEPA)
   adminPayoutsPending: () => req<PendingPayoutHost[]>("GET", "/api/admin/payouts/pending"),
   adminPayoutsGenerate: () => req<HostPayoutOut[]>("POST", "/api/admin/payouts/generate"),
@@ -245,6 +257,30 @@ export interface PendingPayoutHost {
   net_eur: number;
   earliest: string;
   latest: string;
+}
+
+export interface ChargeStartContext {
+  listing_id: number;
+  listing_title: string;
+  listing_address: string;
+  role: "host" | "buyer" | "none";
+  booking_id: number | null;
+  booking_pin: string | null;
+  booking_expires_at: string | null;
+  booking_status: string | null;
+  booking_package_kwh: number | null;
+  host_session_active: boolean;
+}
+
+export interface HostSessionOut {
+  id: number;
+  listing_id: number;
+  kind: "shelly" | "ocpp";
+  status: "active" | "completed" | "error";
+  started_at: string;
+  expires_at: string;
+  stopped_at: string | null;
+  energy_consumed_wh: number;
 }
 
 export interface HostPayoutOut {
