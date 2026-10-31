@@ -1179,31 +1179,42 @@ async def complete_booking(
     await session.commit()
 
     # Automatic €1 joining-fee refund on this host's first completed booking.
-    # Guarded by three conditions so retries + duplicate completes are safe:
-    #   - joining_fee_paid is True (host actually paid it)
-    #   - joining_fee_transaction_id is set (we have something to refund)
-    #   - joining_fee_refunded_at is None (we haven't already refunded)
-    # Any failure is logged and swallowed — the booking completion must not
-    # roll back just because the refund API hiccupped. Admin can retry via
-    # the SumUp dashboard if needed.
+    # Guarded against concurrent complete-booking calls with an optimistic lock:
+    # we flip joining_fee_refunded_at and commit BEFORE calling SumUp, so a
+    # second coroutine finds refunded_at already set and short-circuits. On a
+    # refund API failure we revert the field so the next completion retries.
     if (
         current_user.joining_fee_paid is True
         and current_user.joining_fee_transaction_id
         and current_user.joining_fee_refunded_at is None
     ):
-        try:
-            await sumup.refund(current_user.joining_fee_transaction_id, amount_eur=Decimal("1.00"))
-            current_user.joining_fee_refunded_at = datetime.utcnow()
+        txn_id = current_user.joining_fee_transaction_id
+        # Re-fetch with FOR UPDATE so the losing racer sees the flipped
+        # refunded_at and bails out, rather than racing on stale state.
+        locked = (await session.execute(
+            select(User).where(User.id == current_user.id).with_for_update()
+        )).scalar_one_or_none()
+        if locked and locked.joining_fee_refunded_at is None:
+            tentative_at = datetime.utcnow()
+            locked.joining_fee_refunded_at = tentative_at
             await session.commit()
-            logger.info(
-                "Joining fee refunded to user %d (txn=%s) on first completed booking %d",
-                current_user.id, current_user.joining_fee_transaction_id, b.id,
-            )
-        except Exception as exc:
-            logger.error(
-                "Joining fee refund failed for user %d (txn=%s): %s — refund manually from SumUp dashboard",
-                current_user.id, current_user.joining_fee_transaction_id, exc,
-            )
+            try:
+                await sumup.refund(txn_id, amount_eur=Decimal("1.00"))
+                logger.info(
+                    "Joining fee refunded to user %d (txn=%s) on first completed booking %d",
+                    current_user.id, txn_id, b.id,
+                )
+            except Exception as exc:
+                # Revert so the next completion can retry. Fetch fresh in case
+                # another request has touched the row in the meantime.
+                revert = await session.get(User, current_user.id)
+                if revert and revert.joining_fee_refunded_at == tentative_at:
+                    revert.joining_fee_refunded_at = None
+                    await session.commit()
+                logger.error(
+                    "Joining fee refund failed for user %d (txn=%s): %s — will retry on next completion",
+                    current_user.id, txn_id, exc,
+                )
 
     return {"status": "completed"}
 
