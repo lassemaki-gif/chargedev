@@ -379,15 +379,49 @@ if not settings.encryption_key:
 
 
 def real_ip(request: Request) -> str:
-    """Extract real client IP, checking proxy headers in priority order."""
-    for header in ("x-real-ip", "x-forwarded-for", "x-envoy-external-address"):
-        ip = request.headers.get(header)
-        if ip:
-            return ip.split(",")[0].strip()
+    """Extract real client IP for IP-based rate limiting.
+
+    Each proxy in the chain APPENDS to x-forwarded-for; a client can prepend
+    fake entries to the header but can't inject anything after the trusted
+    edge's own value. So we read the LAST entry, not the first — that's what
+    Railway's / Vercel's own edge put there.
+
+    `x-real-ip` is dropped as an input because browsers can spoof it to the
+    Next.js proxy; `x-forwarded-for` is cheap to defend by convention here.
+    Rate limits on sensitive auth endpoints are additionally keyed by
+    request body (email) so this IP question doesn't gate the main defence.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    envoy = request.headers.get("x-envoy-external-address")
+    if envoy:
+        return envoy.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
 limiter = Limiter(key_func=real_ip, default_limits=["60/minute"])
+
+
+# Account-level lockout (defence against credential stuffing even when the
+# source IP is spoofed). On each bad login we increment the User's counter
+# and, once it crosses a threshold, set locked_until for a progressively
+# longer window. We always return the same generic 401 so an attacker
+# can't probe the lockout state.
+_LOGIN_LOCKOUT_THRESHOLD = 5           # bad attempts before any lockout
+_LOGIN_LOCKOUT_STEPS = [60, 300, 900, 3600]  # seconds: 1m, 5m, 15m, 1h, then 1h+
+
+
+def _lockout_seconds_for(count: int) -> int:
+    """Return the lockout duration (seconds) for the given failure count.
+    Below the threshold → 0; above it, step through the ladder and stay at
+    the max for subsequent fails."""
+    if count < _LOGIN_LOCKOUT_THRESHOLD:
+        return 0
+    idx = min(count - _LOGIN_LOCKOUT_THRESHOLD, len(_LOGIN_LOCKOUT_STEPS) - 1)
+    return _LOGIN_LOCKOUT_STEPS[idx]
 
 
 async def geocode(address: str, city: str, country: str) -> tuple:
@@ -761,8 +795,34 @@ async def register(request: Request, body: RegisterRequest, session: AsyncSessio
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest, session: AsyncSession = Depends(get_session)):
     user = (await session.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
-    if not user or not verify_password(body.password, user.hashed_password):
+    now = datetime.utcnow()
+
+    # Honour a prior account-level lockout. Return the same 401 string as a
+    # bad-password response so the attacker can't tell locked from wrong.
+    if user and user.locked_until and user.locked_until > now:
+        logger.info("Login blocked (locked_until=%s) for user %d", user.locked_until, user.id)
         raise HTTPException(401, "Invalid email or password")
+
+    if not user or not verify_password(body.password, user.hashed_password):
+        if user is not None:
+            user.failed_login_count = (user.failed_login_count or 0) + 1
+            lockout_s = _lockout_seconds_for(user.failed_login_count)
+            if lockout_s > 0:
+                user.locked_until = now + timedelta(seconds=lockout_s)
+                logger.info(
+                    "Login lockout: user=%d count=%d locked_for=%ds",
+                    user.id, user.failed_login_count, lockout_s,
+                )
+            await session.commit()
+        raise HTTPException(401, "Invalid email or password")
+
+    # Successful auth — clear the lockout state so legit users aren't stuck
+    # after a stressful typo streak.
+    if user.failed_login_count or user.locked_until:
+        user.failed_login_count = 0
+        user.locked_until = None
+        await session.commit()
+
     return TokenResponse(
         access_token=create_access_token(user.id, user.role),
         role=user.role,

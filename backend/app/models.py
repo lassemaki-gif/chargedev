@@ -51,6 +51,11 @@ class User(Base):
     # so we can refund it automatically when the host completes their first booking.
     joining_fee_transaction_id: Mapped[Optional[str]] = mapped_column(String(64))
     joining_fee_refunded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Credential-stuffing defence: counts consecutive bad logins; locked_until
+    # is a hard cutoff after too many fails. Keyed on the account itself so a
+    # spoofed source IP can't dodge the counter.
+    failed_login_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

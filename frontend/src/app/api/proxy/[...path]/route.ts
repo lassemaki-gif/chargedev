@@ -19,12 +19,14 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   if (ct) headers.set('content-type', ct);
   if (token) headers.set('authorization', `Bearer ${token}`);
 
-  // Forward the real client IP so backend rate limits aren't bucketed by the
-  // Vercel edge egress IP (which would let one attacker lock out everyone).
-  const xff = req.headers.get('x-forwarded-for');
-  const xri = req.headers.get('x-real-ip');
-  if (xff) headers.set('x-forwarded-for', xff);
-  if (xri) headers.set('x-real-ip', xri);
+  // Forward only the real client IP that Vercel's own edge detected
+  // (`x-vercel-forwarded-for` is signed by Vercel and cannot be set by the
+  // browser). Any client-supplied `x-forwarded-for` / `x-real-ip` on the
+  // incoming request are IGNORED — honouring them would let a scripted
+  // attacker rotate fake IPs and bypass backend rate limits.
+  const vercelIp = req.headers.get('x-vercel-forwarded-for')
+    || req.headers.get('x-real-ip');  // Vercel also sets x-real-ip itself
+  if (vercelIp) headers.set('x-forwarded-for', vercelIp);
 
   const body = req.method !== 'GET' && req.method !== 'HEAD' ? await req.arrayBuffer() : undefined;
 
