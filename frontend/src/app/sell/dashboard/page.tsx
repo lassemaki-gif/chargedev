@@ -379,7 +379,29 @@ function SellerDashboardInner() {
         </div>
 
         {/* Listings */}
-        <h2 className="text-lg font-semibold text-white mb-4">Your chargers</h2>
+        <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+          <h2 className="text-lg font-semibold text-white">Your chargers</h2>
+          {listings.length > 0 && (
+            <details className="text-xs text-ash max-w-md group">
+              <summary className="cursor-pointer hover:text-white list-none inline-flex items-center gap-1">
+                <span className="group-open:hidden">How own-usage works →</span>
+                <span className="hidden group-open:inline text-white">Hide</span>
+              </summary>
+              <div className="mt-2 space-y-2 text-ash leading-relaxed border border-border rounded-lg p-3 bg-card/40">
+                <p>
+                  <strong className="text-white">Charge your own car for free.</strong>{" "}
+                  Tap <em>Charge my car</em> on any listing or scan the printed QR with your phone —
+                  no booking, no PIN, no fee.
+                </p>
+                <p>Sessions auto-stop after 8 hours or when you tap Stop.</p>
+                <p>
+                  Blocked when a paying buyer is actively charging or starts within the next 60 minutes
+                  — so their slot is always safe.
+                </p>
+              </div>
+            </details>
+          )}
+        </div>
         {listings.length === 0 ? (
           <div className="card text-ash text-sm mb-8">
             No chargers listed yet.{" "}

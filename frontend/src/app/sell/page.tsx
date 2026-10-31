@@ -58,7 +58,7 @@ export default function SellLanding() {
           {[
             { icon: "⚡", t: "Any 3-phase outlet", b: "Standard home three-phase socket is enough to get started." },
             { icon: "💰", t: "You keep 80%", b: "ChargedEV takes a 20% platform fee. The rest is yours." },
-            { icon: "🔒", t: "Secure PIN access", b: "Each booking gets a unique PIN. You stay in control." },
+            { icon: "🚗", t: "Charge your own car", b: "Tap once on your dashboard to run your own 8-hour session. No booking, no fee — your charger stays yours." },
           ].map((f) => (
             <div key={f.t} className="card">
               <div className="text-2xl mb-3">{f.icon}</div>
