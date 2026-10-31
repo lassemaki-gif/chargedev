@@ -67,6 +67,8 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     # need to collect each host's IBAN again for weekly SEPA batches.
                     "ALTER TABLE users ALTER COLUMN iban TYPE VARCHAR(255)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_account_holder VARCHAR(120)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_transaction_id VARCHAR(64)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_refunded_at TIMESTAMP",
                     """CREATE TABLE IF NOT EXISTS host_payouts (
                         id SERIAL PRIMARY KEY,
                         host_id INTEGER NOT NULL REFERENCES users(id),

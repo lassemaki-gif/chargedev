@@ -47,6 +47,10 @@ class User(Base):
     iban: Mapped[Optional[str]] = mapped_column(String(255))  # host payout IBAN (SumUp era), Fernet-encrypted at rest
     payout_account_holder: Mapped[Optional[str]] = mapped_column(String(120))
     joining_fee_paid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    # SumUp transaction id of the joining-fee charge, captured on confirmation
+    # so we can refund it automatically when the host completes their first booking.
+    joining_fee_transaction_id: Mapped[Optional[str]] = mapped_column(String(64))
+    joining_fee_refunded_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.buyer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)

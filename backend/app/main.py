@@ -1093,6 +1093,34 @@ async def complete_booking(
     b.status = BookingStatus.completed
     b.completed_at = datetime.utcnow()
     await session.commit()
+
+    # Automatic €1 joining-fee refund on this host's first completed booking.
+    # Guarded by three conditions so retries + duplicate completes are safe:
+    #   - joining_fee_paid is True (host actually paid it)
+    #   - joining_fee_transaction_id is set (we have something to refund)
+    #   - joining_fee_refunded_at is None (we haven't already refunded)
+    # Any failure is logged and swallowed — the booking completion must not
+    # roll back just because the refund API hiccupped. Admin can retry via
+    # the SumUp dashboard if needed.
+    if (
+        current_user.joining_fee_paid is True
+        and current_user.joining_fee_transaction_id
+        and current_user.joining_fee_refunded_at is None
+    ):
+        try:
+            await sumup.refund(current_user.joining_fee_transaction_id, amount_eur=Decimal("1.00"))
+            current_user.joining_fee_refunded_at = datetime.utcnow()
+            await session.commit()
+            logger.info(
+                "Joining fee refunded to user %d (txn=%s) on first completed booking %d",
+                current_user.id, current_user.joining_fee_transaction_id, b.id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Joining fee refund failed for user %d (txn=%s): %s — refund manually from SumUp dashboard",
+                current_user.id, current_user.joining_fee_transaction_id, exc,
+            )
+
     return {"status": "completed"}
 
 
@@ -1490,8 +1518,12 @@ async def verify_joining_fee(
         raise HTTPException(403, "Payment does not belong to this account")
     if result.get("status") == "PAID":
         current_user.joining_fee_paid = True
+        # Capture the SumUp transaction id so we can later refund via SumUp API.
+        txn_id = result.get("transaction_id")
+        if txn_id and not current_user.joining_fee_transaction_id:
+            current_user.joining_fee_transaction_id = txn_id
         await session.commit()
-        logger.info("Joining fee paid by user %d", current_user.id)
+        logger.info("Joining fee paid by user %d (txn=%s)", current_user.id, txn_id)
     return {"paid": current_user.joining_fee_paid is True}
 
 
@@ -1841,8 +1873,11 @@ async def sumup_webhook(
         user = await session.get(User, user_id)
         if user and user.joining_fee_paid is False:
             user.joining_fee_paid = True
+            txn_id = result.get("transaction_id")
+            if txn_id and not user.joining_fee_transaction_id:
+                user.joining_fee_transaction_id = txn_id
             await session.commit()
-            logger.info("Joining fee confirmed via SumUp webhook for user %d", user_id)
+            logger.info("Joining fee confirmed via SumUp webhook for user %d (txn=%s)", user_id, txn_id)
         return JSONResponse({"received": True})
 
     # Booking path: reference is "booking-{booking_id}".
