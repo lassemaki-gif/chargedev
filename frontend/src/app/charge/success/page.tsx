@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { track } from "@vercel/analytics";
 import { useSearchParams, useRouter } from "next/navigation";
+import QRCode from "qrcode";
 import { Nav } from "@/components/Nav";
 import { api, Booking } from "@/lib/api";
 import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
@@ -14,6 +15,7 @@ function SuccessContent() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [qrSvg, setQrSvg] = useState<string | null>(null);
 
   const copyPin = useCallback((pin: string) => {
     navigator.clipboard.writeText(pin).then(() => {
@@ -21,6 +23,22 @@ function SuccessContent() {
       setTimeout(() => setCopied(false), 2000);
     });
   }, []);
+
+  // Generate a QR for the Start-charging URL once the booking lands. The QR
+  // is scannable from another device (laptop → phone, phone → tablet) and
+  // doubles as a visual confirmation; the PIN stays below as a backup.
+  useEffect(() => {
+    if (!booking?.listing_id) return;
+    const base = typeof window !== "undefined" ? window.location.origin : "https://chargedev.io";
+    const url = `${base}/charge/${booking.listing_id}/start`;
+    QRCode.toString(url, {
+      type: "svg",
+      errorCorrectionLevel: "M",
+      margin: 1,
+      color: { dark: "#F7FF2B", light: "#0B0E13" },  // volt on night
+      width: 220,
+    }).then(setQrSvg).catch(() => setQrSvg(null));
+  }, [booking]);
 
   useEffect(() => {
     if (!bookingId) { router.push("/charge"); return; }
@@ -79,24 +97,39 @@ function SuccessContent() {
       <div className="text-5xl mb-4">✅</div>
       <h2 className="text-2xl font-bold text-white mb-2">You&apos;re all set!</h2>
       <p className="text-ash text-sm mb-6">
-        Plug in at the charger, then tap Start — or scan the QR on the charger.
+        Scan this QR with your phone at the charger, or tap Start below.
       </p>
-      <div className="bg-night rounded-xl p-6 mb-3">
-        <p className="text-ash text-xs uppercase tracking-widest mb-2">Your session PIN</p>
-        <p className="font-mono text-5xl font-bold text-volt tracking-[0.2em]">{booking!.pin_code}</p>
+
+      <div className="bg-night rounded-xl p-5 mb-3 flex flex-col items-center">
+        {qrSvg ? (
+          <div
+            className="w-56 h-56 flex items-center justify-center mb-3"
+            dangerouslySetInnerHTML={{ __html: qrSvg }}
+          />
+        ) : (
+          <div className="w-56 h-56 flex items-center justify-center text-ash text-xs mb-3">
+            Generating QR…
+          </div>
+        )}
+        <p className="text-ash text-xs">Scan to start charging</p>
       </div>
-      <button
-        onClick={() => copyPin(booking!.pin_code!)}
-        className="w-full flex items-center justify-center gap-2 text-xs text-ash hover:text-white border border-border rounded-lg px-3 py-2 mb-3 transition-colors"
-      >
-        {copied ? "✓ Copied!" : "Copy PIN to clipboard"}
-      </button>
+
       <button
         onClick={() => router.push(`/charge/${booking!.listing_id}/start`)}
-        className="btn-volt w-full text-sm py-3 mb-6"
+        className="btn-volt w-full text-sm py-3 mb-4"
       >
         Start charging now →
       </button>
+
+      <div className="flex items-center justify-between gap-3 mb-6 text-xs">
+        <span className="text-ash">Backup PIN</span>
+        <button
+          onClick={() => copyPin(booking!.pin_code!)}
+          className="font-mono font-semibold text-volt tracking-widest hover:text-white transition-colors"
+        >
+          {copied ? "✓ Copied!" : booking!.pin_code}
+        </button>
+      </div>
       <div className="text-left space-y-2 text-sm text-ash mb-4">
         <div className="flex justify-between"><span>Charger</span><span className="text-white">{booking!.listing_title}</span></div>
         <div className="flex justify-between"><span>Address</span><span className="text-white">{booking!.listing_address}</span></div>
