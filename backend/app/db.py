@@ -99,6 +99,11 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     )""",
                     "CREATE INDEX IF NOT EXISTS ix_host_sessions_listing_id ON host_sessions (listing_id)",
                     "CREATE INDEX IF NOT EXISTS ix_host_sessions_status ON host_sessions (status)",
+                    # A8: belt-and-braces for the host_session_start race.
+                    # The advisory lock in the endpoint is the primary guard; this
+                    # partial unique index rejects a second insert if the lock misfires.
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ux_host_sessions_active_per_listing "
+                    "ON host_sessions (listing_id) WHERE status = 'active'",
                     # Clear any legacy plaintext verification tokens so a backup
                     # restore of old rows can't hand an attacker a usable link.
                     # The column now holds a sha256 hex; any previously-stored

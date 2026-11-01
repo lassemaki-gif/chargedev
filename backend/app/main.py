@@ -1795,6 +1795,14 @@ async def create_checkout(
     if not listing or not listing.is_available:
         raise HTTPException(404, "Listing not found or unavailable")
 
+    # A9: block booking a charger whose host hasn't configured a payout IBAN.
+    # Without this guard, we'd collect the money and the host's share would
+    # sit in pending forever because the SEPA batch generator can't build a
+    # line without an IBAN.
+    host = await session.get(User, listing.seller_id)
+    if not host or not (host.iban and host.payout_account_holder):
+        raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
+
     total, vat, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)
 
     # Create pending booking (no PIN yet — assigned after payment)
@@ -2310,6 +2318,18 @@ async def buyer_start_session(
     if not listing:
         raise HTTPException(500, "Listing not found")
 
+    # A7: block if the host has an active session on this listing. We'd fire
+    # a second OCPP RemoteStart or try to flip the Shelly relay (already on),
+    # and when the host presses Stop the buyer's paid session loses power.
+    host_active = (await session.execute(
+        select(HostSession.id).where(
+            HostSession.listing_id == b.listing_id,
+            HostSession.status == "active",
+        ).limit(1)
+    )).scalar_one_or_none()
+    if host_active:
+        raise HTTPException(409, "The host is currently using this charger. Please try again in a moment.")
+
     b.started_at = now
     b.status = BookingStatus.active
     await session.commit()
@@ -2399,12 +2419,24 @@ async def host_session_start(
     if not listing or listing.seller_id != current_user.id:
         raise HTTPException(404, "Listing not found")
 
-    # Block if there's already a live host session
+    # A8: serialise concurrent "Charge my car" taps so two coroutines can't both
+    # pass the "no existing session" check and both fire the relay. The partial
+    # unique index on host_sessions (listing_id) WHERE status='active' is the
+    # backstop; this advisory lock is the primary serialisation.
+    try:
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:k)"),
+            {"k": (hash(f"host_session:{listing_id}") & 0x7FFFFFFFFFFFFFFF)},
+        )
+    except Exception:
+        pass  # SQLite dev path: single-process anyway
+
+    # Block if there's already a live host session (now serialised).
     existing = (await session.execute(
         select(HostSession).where(
             HostSession.listing_id == listing_id,
             HostSession.status == "active",
-        )
+        ).with_for_update()
     )).scalar_one_or_none()
     if existing:
         return HostSessionOut.model_validate({
@@ -2414,7 +2446,29 @@ async def host_session_start(
             "energy_consumed_wh": existing.energy_consumed_wh,
         })
 
-    # Block if a buyer booking is active or imminent
+    # A7: block if a buyer booking is actively charging (ShellySession or
+    # OcppSession status='active'). Starting the host session would
+    # overlap the paid session's metering and corrupt the energy accounting.
+    buyer_active = (await session.execute(
+        select(ShellySession.id)
+        .join(Booking, Booking.id == ShellySession.booking_id)
+        .where(ShellySession.status == "active", Booking.listing_id == listing_id)
+        .limit(1)
+    )).scalar_one_or_none()
+    if not buyer_active:
+        buyer_active = (await session.execute(
+            select(OcppSession.id)
+            .join(Booking, Booking.id == OcppSession.booking_id)
+            .where(
+                OcppSession.status.in_(("active", "starting")),
+                Booking.listing_id == listing_id,
+            )
+            .limit(1)
+        )).scalar_one_or_none()
+    if buyer_active:
+        raise HTTPException(409, "A buyer is currently charging at this listing.")
+
+    # Block if a buyer booking is active or imminent (confirmed within window).
     if await _any_booking_imminent(session, listing_id):
         raise HTTPException(409, "A buyer booking is active or starting within the next 60 minutes.")
 
