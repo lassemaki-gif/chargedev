@@ -230,6 +230,10 @@ class HostSession(Base):
     stopped_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     energy_start_wh: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     energy_consumed_wh: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    # OCPP transaction_id reported by the charger in StartTransaction. Needed
+    # to send a proper RemoteStopTransaction when the host presses Stop or
+    # when the 8h cap expires.
+    transaction_id: Mapped[Optional[int]] = mapped_column(Integer)
 
 
 class HostPayout(Base):

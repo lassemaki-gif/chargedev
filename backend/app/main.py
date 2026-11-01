@@ -238,6 +238,35 @@ class ChargedEVChargePoint(OcppCp):
         from .db import async_session
         transaction_id = int(secrets.randbelow(2 ** 31))
         async with async_session() as sess:
+            # Host-session idTags are "host{host_id:06d}" — bind the txn_id to
+            # the HostSession so we can RemoteStop it on 8h cap or Stop press.
+            if id_tag.startswith("host"):
+                try:
+                    host_id = int(id_tag[4:])
+                except ValueError:
+                    host_id = None
+                if host_id is not None:
+                    host_sess = (await sess.execute(
+                        select(HostSession)
+                        .join(Listing, Listing.id == HostSession.listing_id)
+                        .where(
+                            HostSession.host_id == host_id,
+                            HostSession.status == "active",
+                            HostSession.transaction_id.is_(None),
+                            Listing.ocpp_charge_point_id == self.id,
+                        )
+                    )).scalars().first()
+                    if host_sess:
+                        host_sess.transaction_id = transaction_id
+                        host_sess.energy_start_wh = float(meter_start)
+                        await sess.commit()
+                        logger.info("OCPP StartTransaction txn=%d cpid=%s host_session=%d", transaction_id, self.id, host_sess.id)
+                        return call_result.StartTransaction(
+                            transaction_id=transaction_id,
+                            id_tag_info={"status": "Accepted"},
+                        )
+
+            # Buyer booking idTags are "bk{booking_id:06d}" — standard flow.
             ocpp_sess = (await sess.execute(
                 select(OcppSession).where(
                     OcppSession.charge_point_id == self.id,
@@ -260,6 +289,20 @@ class ChargedEVChargePoint(OcppCp):
     async def on_stop_transaction(self, transaction_id: int, timestamp: str, meter_stop: int, **kwargs):
         from .db import async_session
         async with async_session() as sess:
+            # Host session?
+            host_sess = (await sess.execute(
+                select(HostSession).where(HostSession.transaction_id == transaction_id)
+            )).scalar_one_or_none()
+            if host_sess and host_sess.status in ("active", "error"):
+                host_sess.energy_consumed_wh = max(0.0, float(meter_stop) - host_sess.energy_start_wh)
+                host_sess.status = "completed"
+                host_sess.stopped_at = datetime.utcnow()
+                await sess.commit()
+                logger.info("OCPP StopTransaction txn=%d host_session=%d consumed=%.3f kWh",
+                            transaction_id, host_sess.id, host_sess.energy_consumed_wh / 1000.0)
+                return call_result.StopTransaction()
+
+            # Buyer session.
             ocpp_sess = (await sess.execute(
                 select(OcppSession).where(OcppSession.transaction_id == transaction_id)
             )).scalar_one_or_none()
@@ -474,6 +517,21 @@ async def _booking_expiry_sweep() -> None:
                                 relay_off_ok = False
                         except Exception as exc:
                             logger.warning("Expiry sweep: Shelly stop failed for host session %d: %s", hs.id, exc)
+                            relay_off_ok = False
+                    elif hs.kind == "ocpp" and listing and listing.ocpp_charge_point_id:
+                        # A5: issue RemoteStop using the captured transaction_id.
+                        cp_handler = _ocpp_connections.get(listing.ocpp_charge_point_id)
+                        if hs.transaction_id and cp_handler:
+                            try:
+                                await cp_handler._stop_session(hs.transaction_id)
+                                logger.info("Expiry sweep: OCPP RemoteStop sent for host session %d (txn=%d)", hs.id, hs.transaction_id)
+                            except Exception as exc:
+                                logger.error("Expiry sweep: OCPP RemoteStop failed for host session %d: %s", hs.id, exc)
+                                relay_off_ok = False
+                        else:
+                            # No txn_id (charger never acked StartTransaction) or
+                            # the charger disconnected. Can't force-stop; leave
+                            # in error so an admin can clean up manually.
                             relay_off_ok = False
                     async with async_session() as sess2:
                         row = await sess2.get(HostSession, hs.id)
@@ -2585,11 +2643,26 @@ async def host_session_stop(
             logger.error("Shelly host-session stop error: %s", exc)
             relay_confirmed_off = False
     elif hs.kind == "ocpp":
-        # OCPP RemoteStopTransaction needs the charger's own transaction_id,
-        # which we don't track for host sessions in this iteration. Rely on
-        # the user to physically unplug — the OCPP charger will send
-        # StopTransaction on its own. Mark the DB row stopped either way.
-        logger.info("OCPP host session %d marked stopped (unplug to stop physical session)", hs.id)
+        # A5: issue a proper RemoteStopTransaction using the transaction_id
+        # we captured in on_start_transaction. If the charger isn't reachable
+        # or the txn_id is missing, leave the row in `error` so the sweep
+        # keeps retrying — don't claim completed while energy is still flowing.
+        cp_handler = _ocpp_connections.get(listing.ocpp_charge_point_id or "")
+        if hs.transaction_id and cp_handler:
+            try:
+                await cp_handler._stop_session(hs.transaction_id)
+                logger.info("OCPP RemoteStop sent for host session %d (txn=%d)", hs.id, hs.transaction_id)
+                # Note: the authoritative stop + energy_consumed_wh will arrive
+                # via on_stop_transaction. We optimistically mark completed here.
+            except Exception as exc:
+                logger.error("OCPP RemoteStop failed for host session %d: %s", hs.id, exc)
+                relay_confirmed_off = False
+        else:
+            logger.warning(
+                "Host session %d: no OCPP txn_id (%s) or charger not connected (%s) — leaving in error for sweep",
+                hs.id, hs.transaction_id, bool(cp_handler),
+            )
+            relay_confirmed_off = False
 
     # Only transition to completed if the relay-off was confirmed. Otherwise
     # leave in error so the sweep tries again — DB saying "completed" while

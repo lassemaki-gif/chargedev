@@ -104,6 +104,7 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     # partial unique index rejects a second insert if the lock misfires.
                     "CREATE UNIQUE INDEX IF NOT EXISTS ux_host_sessions_active_per_listing "
                     "ON host_sessions (listing_id) WHERE status = 'active'",
+                    "ALTER TABLE host_sessions ADD COLUMN IF NOT EXISTS transaction_id INTEGER",
                     # Clear any legacy plaintext verification tokens so a backup
                     # restore of old rows can't hand an attacker a usable link.
                     # The column now holds a sha256 hex; any previously-stored
