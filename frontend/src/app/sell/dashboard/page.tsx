@@ -43,11 +43,27 @@ function SellerDashboardInner() {
   const [ocppOpen, setOcppOpen] = useState<number | null>(null);
   const [hostSessions, setHostSessions] = useState<Record<number, HostSessionOut | null>>({});
   const [hostSessionBusy, setHostSessionBusy] = useState<number | null>(null);
-  // Dev-only override: ?debug=1 forces the "Charge my car" button to appear on
-  // every listing regardless of whether Shelly/OCPP hardware is wired. Lets
-  // you see the UI without physical hardware; the backend will still return
-  // 400 "no connected metering hardware" when you tap it.
-  const debugMode = searchParams.get("debug") === "1";
+  // Dev-only override: forces the "Charge my car" button to appear on every
+  // listing regardless of whether Shelly/OCPP hardware is wired. Enabled via
+  // either ?debug=1 in the URL (one-visit) or a toggle button persisted in
+  // localStorage (sticky). Backend still returns 400 "no connected metering
+  // hardware" when you tap, so no accidental free charging.
+  const [debugMode, setDebugMode] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const fromUrl = searchParams.get("debug") === "1";
+    const fromStorage = window.localStorage.getItem("ll_debug_host_session") === "1";
+    setDebugMode(fromUrl || fromStorage);
+    if (fromUrl) window.localStorage.setItem("ll_debug_host_session", "1");
+  }, [searchParams]);
+  function toggleDebugMode() {
+    const next = !debugMode;
+    setDebugMode(next);
+    if (typeof window !== "undefined") {
+      if (next) window.localStorage.setItem("ll_debug_host_session", "1");
+      else window.localStorage.removeItem("ll_debug_host_session");
+    }
+  }
   const [ocppChargePointId, setOcppChargePointId] = useState("");
   const [ocppStatus, setOcppStatus] = useState<Record<number, OcppChargePointStatus>>({});
   const [ocppSaving, setOcppSaving] = useState(false);
@@ -385,7 +401,20 @@ function SellerDashboardInner() {
 
         {/* Listings */}
         <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
-          <h2 className="text-lg font-semibold text-white">Your chargers</h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-lg font-semibold text-white">Your chargers</h2>
+            <button
+              onClick={toggleDebugMode}
+              className={`text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded border transition-colors ${
+                debugMode
+                  ? "bg-yellow-500/20 border-yellow-500/40 text-yellow-300"
+                  : "border-border text-ash/60 hover:text-ash hover:border-ash/40"
+              }`}
+              title="Toggle dev-only override that shows Charge my car on every listing regardless of hardware"
+            >
+              {debugMode ? "DEBUG ON" : "debug"}
+            </button>
+          </div>
           {listings.length > 0 && (
             <details className="text-xs text-ash max-w-md group">
               <summary className="cursor-pointer hover:text-white list-none inline-flex items-center gap-1">
