@@ -29,7 +29,9 @@ function SuccessContent() {
   // doubles as a visual confirmation; the PIN stays below as a backup.
   useEffect(() => {
     if (!booking?.listing_id) return;
-    const base = typeof window !== "undefined" ? window.location.origin : "https://chargedev.io";
+    // Hardcoded production host — a preview URL in the QR would 404 the moment
+    // the preview was deprovisioned; a lookalike domain would phish scanners.
+    const base = process.env.NEXT_PUBLIC_SITE_URL || "https://chargedev.io";
     const url = `${base}/charge/${booking.listing_id}/start`;
     QRCode.toString(url, {
       type: "svg",
