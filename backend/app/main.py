@@ -442,18 +442,21 @@ async def _booking_expiry_sweep() -> None:
         try:
             now = datetime.utcnow()
 
-            # (b) Host sessions past their 8h cap: turn relay off + mark completed.
+            # (b) Host sessions needing relay-off:
+            #   - status=active AND expires_at < now (8h cap hit)
+            #   - status=error (relay-off previously failed, retry)
             async with async_session() as sess:
                 stale_hs = (await sess.execute(
                     select(HostSession).where(
-                        HostSession.status == "active",
-                        HostSession.expires_at < now,
+                        (HostSession.status == "active") & (HostSession.expires_at < now)
+                        | (HostSession.status == "error"),
                     ).limit(20)
                 )).scalars().all()
             for hs in stale_hs:
                 try:
                     async with async_session() as sess2:
                         listing = await sess2.get(Listing, hs.listing_id)
+                    relay_off_ok = True
                     if hs.kind == "shelly" and listing and listing.shelly_auth_key:
                         try:
                             auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
@@ -461,17 +464,31 @@ async def _booking_expiry_sweep() -> None:
                             ds = await client.status()
                             if ds:
                                 hs.energy_consumed_wh = max(0.0, _shelly_energy_wh(ds) - hs.energy_start_wh)
-                            await client.relay(False)
+                            relay_off_ok = await client.relay(False)
+                            # Verify by re-polling (A4): if still on, leave in error.
+                            try:
+                                verify = await client.status()
+                                if verify is not None and _shelly_relay_on(verify):
+                                    relay_off_ok = False
+                            except Exception:
+                                relay_off_ok = False
                         except Exception as exc:
                             logger.warning("Expiry sweep: Shelly stop failed for host session %d: %s", hs.id, exc)
+                            relay_off_ok = False
                     async with async_session() as sess2:
                         row = await sess2.get(HostSession, hs.id)
-                        if row and row.status == "active":
+                        if not row:
+                            continue
+                        row.energy_consumed_wh = hs.energy_consumed_wh
+                        if relay_off_ok:
                             row.status = "completed"
                             row.stopped_at = now
-                            row.energy_consumed_wh = hs.energy_consumed_wh
                             await sess2.commit()
-                            logger.info("Expiry sweep: host session %d auto-stopped at 8h cap", hs.id)
+                            logger.info("Expiry sweep: host session %d stopped (relay confirmed off)", hs.id)
+                        else:
+                            row.status = "error"
+                            await sess2.commit()
+                            logger.warning("Expiry sweep: host session %d still on — will retry next tick", hs.id)
                 except Exception as exc:
                     logger.error("Expiry sweep host-session error %d: %s", hs.id, exc)
 
@@ -2542,6 +2559,7 @@ async def host_session_stop(
     if not hs:
         raise HTTPException(404, "No active host session on this listing")
 
+    relay_confirmed_off = True
     if hs.kind == "shelly" and listing.shelly_auth_key:
         try:
             auth_key = _decrypt_shelly_key(listing.shelly_auth_key)
@@ -2549,9 +2567,23 @@ async def host_session_stop(
             ds = await client.status()
             current_wh = _shelly_energy_wh(ds) if ds else hs.energy_start_wh
             hs.energy_consumed_wh = max(0.0, current_wh - hs.energy_start_wh)
-            await client.relay(False)
+            ok = await client.relay(False)
+            # A4: verify the relay actually turned off by re-polling status.
+            # ShellyClient.relay returns False on exception, so we re-check
+            # device state. If still on, mark the row 'error' so the sweep
+            # retries rather than silently claiming completed.
+            relay_confirmed_off = ok
+            try:
+                verify = await client.status()
+                if verify is not None:
+                    relay_confirmed_off = relay_confirmed_off and not _shelly_relay_on(verify)
+            except Exception:
+                relay_confirmed_off = False
+            if not relay_confirmed_off:
+                logger.error("Shelly host-session %d stop: relay still on after off command — marking error for sweep retry", hs.id)
         except Exception as exc:
             logger.error("Shelly host-session stop error: %s", exc)
+            relay_confirmed_off = False
     elif hs.kind == "ocpp":
         # OCPP RemoteStopTransaction needs the charger's own transaction_id,
         # which we don't track for host sessions in this iteration. Rely on
@@ -2559,7 +2591,10 @@ async def host_session_stop(
         # StopTransaction on its own. Mark the DB row stopped either way.
         logger.info("OCPP host session %d marked stopped (unplug to stop physical session)", hs.id)
 
-    hs.status = "completed"
+    # Only transition to completed if the relay-off was confirmed. Otherwise
+    # leave in error so the sweep tries again — DB saying "completed" while
+    # the relay stays on would silently burn host electricity.
+    hs.status = "completed" if relay_confirmed_off else "error"
     hs.stopped_at = datetime.utcnow()
     await session.commit()
     return HostSessionOut.model_validate({
