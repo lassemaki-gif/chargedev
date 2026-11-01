@@ -76,6 +76,15 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP",
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP",
                     "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS started_at TIMESTAMP",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_attempted_at TIMESTAMP",
+                    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS refund_completed_at TIMESTAMP",
+                    # One-shot backfill for legacy bookings that confirmed before the
+                    # explicit-start migration landed (A6 in the pre-launch review).
+                    # Without this, a legacy confirmed booking has expires_at=NULL and
+                    # could be started indefinitely. Use created_at as the anchor since
+                    # confirmed_at was never stamped on those rows.
+                    "UPDATE bookings SET confirmed_at = created_at WHERE status = 'confirmed' AND confirmed_at IS NULL",
+                    "UPDATE bookings SET expires_at = created_at + INTERVAL '30 minutes' WHERE status = 'confirmed' AND expires_at IS NULL",
                     """CREATE TABLE IF NOT EXISTS host_sessions (
                         id SERIAL PRIMARY KEY,
                         listing_id INTEGER NOT NULL REFERENCES listings(id),

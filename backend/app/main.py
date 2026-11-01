@@ -359,6 +359,77 @@ async def _ocpp_start_session(booking: Booking, listing: Listing) -> None:
         logger.info("OCPP session started for booking %d (id_tag=%s)", booking.id, id_tag)
 
 
+async def _attempt_booking_refund(booking_id: int, *, source: str) -> bool:
+    """Idempotently refund an expired booking via SumUp and mark it cancelled.
+
+    Pattern (same as joining_fee_refunded_at):
+    1. FOR UPDATE on the booking row.
+    2. Short-circuit if already refunded OR already attempted within 5 min.
+    3. Stamp refund_attempted_at + commit (releases the lock) BEFORE calling SumUp.
+    4. If SumUp refund succeeds: FOR UPDATE again, set refund_completed_at AND
+       flip status=cancelled in the same transaction.
+    5. If SumUp refund fails: revert refund_attempted_at so the sweep retries.
+       Status stays `confirmed`-but-expired so it still matches the sweep filter.
+
+    `source` is just a tag for the log line ("sweep" vs "buyer-start").
+    Returns True on a successful refund, False otherwise (incl. "already done").
+    """
+    from .db import async_session
+    now = datetime.utcnow()
+    # Step 1 + 2 + 3: lock, guard, stamp, commit (release).
+    async with async_session() as sess:
+        b = (await sess.execute(
+            select(Booking).where(Booking.id == booking_id).with_for_update()
+        )).scalar_one_or_none()
+        if not b:
+            return False
+        if b.refund_completed_at is not None:
+            return False  # already refunded
+        if (b.refund_attempted_at is not None
+                and b.refund_attempted_at > now - timedelta(minutes=5)):
+            return False  # another coroutine is actively trying
+        if not b.stripe_session_id:
+            # Nothing to refund (shouldn't happen for a paid booking, but defend).
+            b.status = BookingStatus.cancelled
+            await sess.commit()
+            logger.warning("Booking %d had no stripe_session_id — marked cancelled without refund (source=%s)", b.id, source)
+            return False
+        tentative_at = now
+        b.refund_attempted_at = tentative_at
+        await sess.commit()
+
+    # Step 4/5: fire the external calls OUTSIDE the lock so we don't hold a row
+    # lock across a 15-second SumUp request.
+    try:
+        verif = await sumup.verify_checkout(b.stripe_session_id)
+        txn_id = verif.get("transaction_id")
+        if not txn_id:
+            raise RuntimeError("SumUp verify returned no transaction_id")
+        await sumup.refund(txn_id, amount_eur=Decimal(f"{b.total_eur:.2f}"))
+    except Exception as exc:
+        # Revert the stamp (only if it still matches ours — another retry may
+        # have overwritten it) so the sweep picks the row up again.
+        async with async_session() as sess:
+            row = await sess.get(Booking, booking_id)
+            if row and row.refund_attempted_at == tentative_at:
+                row.refund_attempted_at = None
+                await sess.commit()
+        logger.error("Booking %d refund failed (source=%s): %s — will retry", booking_id, source, exc)
+        return False
+
+    # Success: terminal transition, status + completed_at together.
+    async with async_session() as sess:
+        row = (await sess.execute(
+            select(Booking).where(Booking.id == booking_id).with_for_update()
+        )).scalar_one_or_none()
+        if row and row.refund_completed_at is None:
+            row.refund_completed_at = datetime.utcnow()
+            row.status = BookingStatus.cancelled
+            await sess.commit()
+            logger.info("Booking %d refunded + cancelled (source=%s)", booking_id, source)
+    return True
+
+
 async def _booking_expiry_sweep() -> None:
     """Every minute: (a) cancel+refund bookings past their 30-min start window,
     (b) stop host sessions past their 8-hour cap. Belt-and-braces for the
@@ -404,7 +475,11 @@ async def _booking_expiry_sweep() -> None:
                 except Exception as exc:
                     logger.error("Expiry sweep host-session error %d: %s", hs.id, exc)
 
-            # (a) Expired unstarted bookings: cancel + refund via SumUp.
+            # (a) Expired unstarted bookings: refund via SumUp, THEN cancel.
+            # Select rows that either have never been refunded, or whose last
+            # refund attempt is more than 5 minutes old (transient SumUp outage
+            # recovery). refund_completed_at is the terminal flag.
+            retry_cutoff = now - timedelta(minutes=5)
             async with async_session() as sess:
                 expired = (await sess.execute(
                     select(Booking).where(
@@ -412,30 +487,13 @@ async def _booking_expiry_sweep() -> None:
                         Booking.started_at.is_(None),
                         Booking.expires_at.isnot(None),
                         Booking.expires_at < now,
-                    ).limit(20)  # cap per tick so we don't gobble a connection
+                        Booking.refund_completed_at.is_(None),
+                        (Booking.refund_attempted_at.is_(None))
+                        | (Booking.refund_attempted_at < retry_cutoff),
+                    ).limit(20)
                 )).scalars().all()
             for b in expired:
-                try:
-                    txn_id = None
-                    if b.stripe_session_id:
-                        try:
-                            verif = await sumup.verify_checkout(b.stripe_session_id)
-                            txn_id = verif.get("transaction_id")
-                        except Exception as exc:
-                            logger.warning("Expiry sweep: SumUp verify failed for booking %d: %s", b.id, exc)
-                    if txn_id:
-                        try:
-                            await sumup.refund(txn_id, amount_eur=Decimal(f"{b.total_eur:.2f}"))
-                        except Exception as exc:
-                            logger.error("Expiry sweep: refund failed for booking %d (txn=%s): %s", b.id, txn_id, exc)
-                    async with async_session() as sess2:
-                        row = await sess2.get(Booking, b.id)
-                        if row and row.status == BookingStatus.confirmed and row.started_at is None:
-                            row.status = BookingStatus.cancelled
-                            await sess2.commit()
-                            logger.info("Expiry sweep: booking %d cancelled (expired, refund attempted)", b.id)
-                except Exception as exc:
-                    logger.error("Expiry sweep inner error for booking %d: %s", b.id, exc)
+                await _attempt_booking_refund(b.id, source="sweep")
         except Exception as exc:
             logger.warning("Expiry sweep loop error: %s", exc)
 
@@ -2227,20 +2285,26 @@ async def buyer_start_session(
         raise HTTPException(400, f"Cannot start — booking is {b.status}")
 
     now = datetime.utcnow()
-    if b.expires_at and now > b.expires_at:
-        # Expired: auto-cancel + refund (defence in depth; the background sweep
-        # usually gets there first, but race here just in case).
-        b.status = BookingStatus.cancelled
+    # Legacy bookings (confirmed before the explicit-start migration) got
+    # confirmed_at + expires_at backfilled from created_at + 30 min, so this
+    # covers them too. A booking whose columns somehow still ended up NULL
+    # is treated as expired — safer than letting it start indefinitely.
+    if (not b.expires_at) or now > b.expires_at:
+        booking_id_for_refund = b.id
+        # Release this transaction's row lock before the helper takes its own
+        # FOR UPDATE and makes external calls.
         await session.commit()
-        if b.stripe_session_id:
-            try:
-                verif = await sumup.verify_checkout(b.stripe_session_id)
-                txn = verif.get("transaction_id")
-                if txn:
-                    await sumup.refund(txn, amount_eur=Decimal(f"{b.total_eur:.2f}"))
-            except Exception as exc:
-                logger.error("Expired-booking refund failed for %d: %s", b.id, exc)
-        raise HTTPException(410, "This booking expired (30-min start window). You've been refunded.")
+        refunded = await _attempt_booking_refund(booking_id_for_refund, source="buyer-start")
+        if refunded:
+            raise HTTPException(410, "This booking expired (30-min start window). You've been refunded.")
+        # Refund failed or deferred — give the buyer an honest message and let
+        # the sweep retry. The booking is still status=confirmed-but-expired
+        # until the refund actually succeeds, so no "cancelled" lie in the UI.
+        raise HTTPException(
+            410,
+            "This booking expired. We've started a refund; it will arrive within 24h. "
+            "If you don't see it by then, contact support@chargedev.io.",
+        )
 
     listing = await session.get(Listing, b.listing_id)
     if not listing:

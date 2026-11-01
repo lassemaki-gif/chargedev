@@ -147,6 +147,13 @@ class Booking(Base):
     # Stamped once the buyer actually presses Start — distinguishes "paid"
     # (status=confirmed, pin issued) from "charging" (status=active, started_at set).
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Refund state machine for expired-and-cancelled bookings. The sweep + the
+    # buyer-start endpoint both race on this row, so we use the same optimistic-
+    # lock pattern as joining_fee_refunded_at: FOR UPDATE on the row, stamp
+    # attempted_at + commit BEFORE calling SumUp, set completed_at only on
+    # SumUp success, revert attempted_at on failure so the sweep retries.
+    refund_attempted_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    refund_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     notes: Mapped[Optional[str]] = mapped_column(Text)
     paid_out: Mapped[bool] = mapped_column(Boolean, default=False)
     paid_out_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
