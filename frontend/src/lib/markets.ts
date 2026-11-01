@@ -45,7 +45,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   en: {
     headline1: "Charge smarter,",
     headline2: "earn from home.",
-    body: "Find home EV chargers near you, or earn money by renting out your own socket. Book 20–80 kWh packages — PIN access, instant confirmation.",
+    body: "Find home EV chargers near you, or earn money by renting out your own socket. Book 20–80 kWh packages — scan to start, instant confirmation.",
     findCharger: "Find a charger",
     becomeHost: "Become a host",
     pkg: "Packages from",
@@ -70,7 +70,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   fi: {
     headline1: "Lataa lähellä,",
     headline2: "ansaitse kotoa.",
-    body: "Löydä kotilatauspisteitä läheltäsi tai vuokraa omaa latausasemaasi. Varaa 20–80 kWh paketteja — PIN-pääsy, välitön vahvistus.",
+    body: "Löydä kotilatauspisteitä läheltäsi tai vuokraa omaa latausasemaasi. Varaa 20–80 kWh paketteja — skannaa ja aloita, välitön vahvistus.",
     findCharger: "Etsi latauspiste",
     becomeHost: "Ryhdy isännäksi",
     pkg: "Paketit alkaen",
@@ -95,7 +95,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   sv: {
     headline1: "Ladda nära dig,",
     headline2: "tjäna hemifrån.",
-    body: "Hitta hemmaladdare nära dig eller tjäna pengar på att hyra ut ditt uttag. Boka 20–80 kWh paket — PIN-åtkomst, omedelbar bekräftelse.",
+    body: "Hitta hemmaladdare nära dig eller tjäna pengar på att hyra ut ditt uttag. Boka 20–80 kWh paket — skanna och starta, omedelbar bekräftelse.",
     findCharger: "Hitta en laddare",
     becomeHost: "Bli värd",
     pkg: "Paket från",
@@ -120,7 +120,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   nb: {
     headline1: "Lad nær deg,",
     headline2: "tjen hjemmefra.",
-    body: "Finn hjemmeladere nær deg eller tjen penger ved å leie ut kontakten din. Bestill 20–80 kWh pakker — PIN-tilgang, umiddelbar bekreftelse.",
+    body: "Finn hjemmeladere nær deg eller tjen penger ved å leie ut kontakten din. Bestill 20–80 kWh pakker — skann og start, umiddelbar bekreftelse.",
     findCharger: "Finn en lader",
     becomeHost: "Bli vert",
     pkg: "Pakker fra",
@@ -145,7 +145,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   da: {
     headline1: "Oplad tæt på dig,",
     headline2: "tjen hjemmefra.",
-    body: "Find hjemmeladere tæt på dig eller tjen penge ved at udleje din stikkontakt. Book 20–80 kWh pakker — PIN-adgang, øjeblikkelig bekræftelse.",
+    body: "Find hjemmeladere tæt på dig eller tjen penge ved at udleje din stikkontakt. Book 20–80 kWh pakker — scan og start, øjeblikkelig bekræftelse.",
     findCharger: "Find en lader",
     becomeHost: "Bliv vært",
     pkg: "Pakker fra",
@@ -170,7 +170,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   de: {
     headline1: "Laden in der Nähe,",
     headline2: "verdienen von zu Hause.",
-    body: "Finden Sie Heimlader in Ihrer Nähe oder verdienen Sie Geld durch Vermietung Ihrer Steckdose. Buchen Sie 20–80 kWh Pakete — PIN-Zugang, sofortige Bestätigung.",
+    body: "Finden Sie Heimlader in Ihrer Nähe oder verdienen Sie Geld durch Vermietung Ihrer Steckdose. Buchen Sie 20–80 kWh Pakete — scannen und starten, sofortige Bestätigung.",
     findCharger: "Ladestation finden",
     becomeHost: "Gastgeber werden",
     pkg: "Pakete ab",
@@ -195,7 +195,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   fr: {
     headline1: "Rechargez près de chez vous,",
     headline2: "gagnez depuis chez vous.",
-    body: "Trouvez des chargeurs domestiques près de vous ou gagnez de l'argent en louant votre prise. Réservez des forfaits 20–80 kWh — accès PIN, confirmation instantanée.",
+    body: "Trouvez des chargeurs domestiques près de vous ou gagnez de l'argent en louant votre prise. Réservez des forfaits 20–80 kWh — scannez pour démarrer, confirmation instantanée.",
     findCharger: "Trouver un chargeur",
     becomeHost: "Devenir hôte",
     pkg: "Forfaits à partir de",
@@ -220,7 +220,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   nl: {
     headline1: "Laad op in de buurt,",
     headline2: "verdien thuis.",
-    body: "Vind thuisladers bij jou in de buurt of verdien geld door je stopcontact te verhuren. Boek 20–80 kWh pakketten — PIN-toegang, directe bevestiging.",
+    body: "Vind thuisladers bij jou in de buurt of verdien geld door je stopcontact te verhuren. Boek 20–80 kWh pakketten — scannen en starten, directe bevestiging.",
     findCharger: "Zoek een lader",
     becomeHost: "Word host",
     pkg: "Pakketten vanaf",
@@ -245,7 +245,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   es: {
     headline1: "Carga cerca de ti,",
     headline2: "gana desde casa.",
-    body: "Encuentra cargadores domésticos cerca de ti o gana dinero alquilando tu enchufe. Reserva paquetes de 20–80 kWh — acceso por PIN, confirmación instantánea.",
+    body: "Encuentra cargadores domésticos cerca de ti o gana dinero alquilando tu enchufe. Reserva paquetes de 20–80 kWh — escanea para empezar, confirmación instantánea.",
     findCharger: "Encontrar cargador",
     becomeHost: "Ser anfitrión",
     pkg: "Paquetes desde",
@@ -270,7 +270,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   pt: {
     headline1: "Carregue perto de si,",
     headline2: "ganhe em casa.",
-    body: "Encontre carregadores domésticos perto de si ou ganhe dinheiro alugando a sua tomada. Reserve pacotes de 20–80 kWh — acesso por PIN, confirmação instantânea.",
+    body: "Encontre carregadores domésticos perto de si ou ganhe dinheiro alugando a sua tomada. Reserve pacotes de 20–80 kWh — digitalize para iniciar, confirmação instantânea.",
     findCharger: "Encontrar carregador",
     becomeHost: "Tornar-se anfitrião",
     pkg: "Pacotes a partir de",
@@ -295,7 +295,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   ptbr: {
     headline1: "Carregue perto de você,",
     headline2: "ganhe de casa.",
-    body: "Encontre carregadores residenciais perto de você ou ganhe dinheiro alugando sua tomada. Reserve pacotes de 20–80 kWh — acesso por PIN, confirmação imediata.",
+    body: "Encontre carregadores residenciais perto de você ou ganhe dinheiro alugando sua tomada. Reserve pacotes de 20–80 kWh — escaneie para começar, confirmação imediata.",
     findCharger: "Encontrar carregador",
     becomeHost: "Ser anfitrião",
     pkg: "Pacotes a partir de",
@@ -320,7 +320,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   it: {
     headline1: "Ricarica vicino a te,",
     headline2: "guadagna da casa.",
-    body: "Trova caricatori domestici vicino a te o guadagna affittando la tua presa. Prenota pacchetti da 20–80 kWh — accesso PIN, conferma istantanea.",
+    body: "Trova caricatori domestici vicino a te o guadagna affittando la tua presa. Prenota pacchetti da 20–80 kWh — scansiona per iniziare, conferma istantanea.",
     findCharger: "Trova caricatore",
     becomeHost: "Diventa host",
     pkg: "Pacchetti da",
@@ -345,7 +345,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   pl: {
     headline1: "Ładuj w pobliżu,",
     headline2: "zarabiaj z domu.",
-    body: "Znajdź domowe ładowarki w pobliżu lub zarabiaj, wynajmując swoje gniazdko. Rezerwuj pakiety 20–80 kWh — dostęp PIN, natychmiastowe potwierdzenie.",
+    body: "Znajdź domowe ładowarki w pobliżu lub zarabiaj, wynajmując swoje gniazdko. Rezerwuj pakiety 20–80 kWh — zeskanuj, aby rozpocząć, natychmiastowe potwierdzenie.",
     findCharger: "Znajdź ładowarkę",
     becomeHost: "Zostań hostem",
     pkg: "Pakiety od",
@@ -370,7 +370,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   cs: {
     headline1: "Nabíjejte v blízkosti,",
     headline2: "vydělávejte doma.",
-    body: "Najděte domácí nabíječky ve vašem okolí nebo vydělávejte pronájmem vaší zásuvky. Rezervujte balíčky 20–80 kWh — přístup PIN, okamžité potvrzení.",
+    body: "Najděte domácí nabíječky ve vašem okolí nebo vydělávejte pronájmem vaší zásuvky. Rezervujte balíčky 20–80 kWh — naskenujte a začněte, okamžité potvrzení.",
     findCharger: "Najít nabíječku",
     becomeHost: "Stát se hostitelem",
     pkg: "Balíčky od",
@@ -395,7 +395,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   ro: {
     headline1: "Încărcați în apropiere,",
     headline2: "câștigați de acasă.",
-    body: "Găsiți încărcătoare acasă în apropierea dvs. sau câștigați bani închiriind priza dvs. Rezervați pachete de 20–80 kWh — acces PIN, confirmare instantanee.",
+    body: "Găsiți încărcătoare acasă în apropierea dvs. sau câștigați bani închiriind priza dvs. Rezervați pachete de 20–80 kWh — scanează pentru start, confirmare instantanee.",
     findCharger: "Găsește un încărcător",
     becomeHost: "Deveniți gazdă",
     pkg: "Pachete de la",
@@ -420,7 +420,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   el: {
     headline1: "Φορτίστε κοντά σας,",
     headline2: "κερδίστε από το σπίτι.",
-    body: "Βρείτε οικιακούς φορτιστές κοντά σας ή κερδίστε χρήματα νοικιάζοντας την πρίζα σας. Κρατήστε πακέτα 20–80 kWh — πρόσβαση με PIN, άμεση επιβεβαίωση.",
+    body: "Βρείτε οικιακούς φορτιστές κοντά σας ή κερδίστε χρήματα νοικιάζοντας την πρίζα σας. Κρατήστε πακέτα 20–80 kWh — σαρώστε για εκκίνηση, άμεση επιβεβαίωση.",
     findCharger: "Εύρεση φορτιστή",
     becomeHost: "Γίνετε οικοδεσπότης",
     pkg: "Πακέτα από",
@@ -445,7 +445,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   ja: {
     headline1: "近くで充電、",
     headline2: "自宅で稼ぐ。",
-    body: "近くの自宅充電スポットを探すか、自分のコンセントを貸して収入を得ましょう。20〜80 kWhのパッケージを予約 — PINコードでアクセス、即時確認。",
+    body: "近くの自宅充電スポットを探すか、自分のコンセントを貸して収入を得ましょう。20〜80 kWhのパッケージを予約 — スキャンして開始、即時確認。",
     findCharger: "充電スポットを探す",
     becomeHost: "ホストになる",
     pkg: "パッケージ",
@@ -470,7 +470,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   ko: {
     headline1: "가까운 곳에서 충전하고,",
     headline2: "집에서 수익을 내세요.",
-    body: "가까운 가정용 충전기를 찾거나, 내 콘센트를 대여하여 수익을 창출하세요. 20–80 kWh 패키지 예약 — PIN 접근, 즉시 확인.",
+    body: "가까운 가정용 충전기를 찾거나, 내 콘센트를 대여하여 수익을 창출하세요. 20–80 kWh 패키지 예약 — 스캔하여 시작, 즉시 확인.",
     findCharger: "충전기 찾기",
     becomeHost: "호스트 되기",
     pkg: "패키지",
@@ -495,7 +495,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   th: {
     headline1: "ชาร์จใกล้บ้าน,",
     headline2: "สร้างรายได้จากบ้าน.",
-    body: "ค้นหาจุดชาร์จในบ้านใกล้ๆ คุณ หรือสร้างรายได้ด้วยการให้เช่าเต้ารับไฟฟ้าของคุณ จองแพ็กเกจ 20–80 kWh — เข้าถึงด้วย PIN ยืนยันทันที",
+    body: "ค้นหาจุดชาร์จในบ้านใกล้ๆ คุณ หรือสร้างรายได้ด้วยการให้เช่าเต้ารับไฟฟ้าของคุณ จองแพ็กเกจ 20–80 kWh — สแกนเพื่อเริ่ม ยืนยันทันที",
     findCharger: "ค้นหาจุดชาร์จ",
     becomeHost: "เป็นเจ้าบ้าน",
     pkg: "แพ็กเกจเริ่มต้น",
@@ -520,7 +520,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   id: {
     headline1: "Isi daya di dekat Anda,",
     headline2: "hasilkan uang dari rumah.",
-    body: "Temukan pengisi daya rumah di dekat Anda atau hasilkan uang dengan menyewakan colokan Anda. Pesan paket 20–80 kWh — akses PIN, konfirmasi instan.",
+    body: "Temukan pengisi daya rumah di dekat Anda atau hasilkan uang dengan menyewakan colokan Anda. Pesan paket 20–80 kWh — pindai untuk mulai, konfirmasi instan.",
     findCharger: "Cari pengisi daya",
     becomeHost: "Jadi tuan rumah",
     pkg: "Paket mulai dari",
@@ -545,7 +545,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   zhtw: {
     headline1: "附近充電，",
     headline2: "在家賺錢。",
-    body: "在附近尋找家用充電站，或出租您的插座賺取收入。預訂 20–80 kWh 套餐 — PIN碼訪問，即時確認。",
+    body: "在附近尋找家用充電站，或出租您的插座賺取收入。預訂 20–80 kWh 套餐 — 掃描即可開始，即時確認。",
     findCharger: "尋找充電站",
     becomeHost: "成為房東",
     pkg: "套餐",
@@ -570,7 +570,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   bg: {
     headline1: "Заредете наблизо,",
     headline2: "спечелете от дома.",
-    body: "Намерете домашни зарядни устройства близо до вас или спечелете пари, отдавайки под наем вашия контакт. Резервирайте пакети от 20–80 kWh — PIN достъп, незабавно потвърждение.",
+    body: "Намерете домашни зарядни устройства близо до вас или спечелете пари, отдавайки под наем вашия контакт. Резервирайте пакети от 20–80 kWh — сканирайте, за да започнете, незабавно потвърждение.",
     findCharger: "Намери зарядна",
     becomeHost: "Стани домакин",
     pkg: "Пакети от",
@@ -595,7 +595,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   hr: {
     headline1: "Punjenje u blizini,",
     headline2: "zaradite od kuće.",
-    body: "Pronađite kućne punjače blizu vas ili zaradite iznajmljivanjem utičnice. Rezervirajte pakete od 20–80 kWh — PIN pristup, trenutna potvrda.",
+    body: "Pronađite kućne punjače blizu vas ili zaradite iznajmljivanjem utičnice. Rezervirajte pakete od 20–80 kWh — skeniraj za početak, trenutna potvrda.",
     findCharger: "Pronađi punjač",
     becomeHost: "Postani domaćin",
     pkg: "Paketi od",
@@ -620,7 +620,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   et: {
     headline1: "Lae lähedal,",
     headline2: "teeni kodus.",
-    body: "Leia kodused laadijad enda lähedalt või teeni raha oma pistiku rentimisega. Broneeri 20–80 kWh pakette — PIN-juurdepääs, kohene kinnitamine.",
+    body: "Leia kodused laadijad enda lähedalt või teeni raha oma pistiku rentimisega. Broneeri 20–80 kWh pakette — skanni ja alusta, kohene kinnitamine.",
     findCharger: "Leia laadija",
     becomeHost: "Saa peremeheks",
     pkg: "Paketid alates",
@@ -645,7 +645,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   hu: {
     headline1: "Töltés a közelben,",
     headline2: "bevétel otthonról.",
-    body: "Találjon házi töltőket a közelében, vagy keressen pénzt a dugaljának bérbeadásával. Foglaljon 20–80 kWh csomagokat — PIN-hozzáférés, azonnali megerősítés.",
+    body: "Találjon házi töltőket a közelében, vagy keressen pénzt a dugaljának bérbeadásával. Foglaljon 20–80 kWh csomagokat — olvassa be a kezdéshez, azonnali megerősítés.",
     findCharger: "Töltő keresése",
     becomeHost: "Legyen házigazda",
     pkg: "Csomagok",
@@ -670,7 +670,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   lv: {
     headline1: "Uzlādē tuvumā,",
     headline2: "pelni no mājas.",
-    body: "Atrodiet mājas lādētājus tuvumā vai pelniet naudu, iznomājot savu kontaktligzdu. Rezervējiet 20–80 kWh paketes — PIN piekļuve, tūlītējs apstiprinājums.",
+    body: "Atrodiet mājas lādētājus tuvumā vai pelniet naudu, iznomājot savu kontaktligzdu. Rezervējiet 20–80 kWh paketes — skenējiet, lai sāktu, tūlītējs apstiprinājums.",
     findCharger: "Atrast lādētāju",
     becomeHost: "Kļūt par saimnieku",
     pkg: "Paketes no",
@@ -695,7 +695,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   lt: {
     headline1: "Įkraukite arti,",
     headline2: "uždirbkite namuose.",
-    body: "Raskite namų įkroviklius netoli jūsų arba užsidirbkite pinigų nuomojant savo lizdą. Rezervuokite 20–80 kWh paketus — PIN prieiga, momentinis patvirtinimas.",
+    body: "Raskite namų įkroviklius netoli jūsų arba užsidirbkite pinigų nuomojant savo lizdą. Rezervuokite 20–80 kWh paketus — nuskaitykite ir pradėkite, momentinis patvirtinimas.",
     findCharger: "Rasti įkroviklį",
     becomeHost: "Tapti šeimininku",
     pkg: "Paketai nuo",
@@ -720,7 +720,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   sk: {
     headline1: "Nabíjajte v blízkosti,",
     headline2: "zarábajte doma.",
-    body: "Nájdite domáce nabíjačky vo vašom okolí alebo zarábajte prenájmom vašej zásuvky. Rezervujte balíčky 20–80 kWh — PIN prístup, okamžité potvrdenie.",
+    body: "Nájdite domáce nabíjačky vo vašom okolí alebo zarábajte prenájmom vašej zásuvky. Rezervujte balíčky 20–80 kWh — naskenujte a začnite, okamžité potvrdenie.",
     findCharger: "Nájsť nabíjačku",
     becomeHost: "Stať sa hostiteľom",
     pkg: "Balíčky od",
@@ -745,7 +745,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   sl: {
     headline1: "Polnite v bližini,",
     headline2: "zaslužite doma.",
-    body: "Poiščite domače polnilnike v svoji bližini ali zaslužite z oddajanjem vtičnice v najem. Rezervirajte pakete 20–80 kWh — dostop s PIN-om, takojšnja potrditev.",
+    body: "Poiščite domače polnilnike v svoji bližini ali zaslužite z oddajanjem vtičnice v najem. Rezervirajte pakete 20–80 kWh — skenirajte za začetek, takojšnja potrditev.",
     findCharger: "Najdi polnilnik",
     becomeHost: "Postani gostitelj",
     pkg: "Paketi od",
@@ -770,7 +770,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   is: {
     headline1: "Hladdu nálægt þér,",
     headline2: "aflaðu tekna heiman.",
-    body: "Finndu heimahleðslur nálægt þér eða aflaðu tekna með því að leigja út innstunguna þína. Bókaðu 20–80 kWh pakka — PIN-aðgangur, tafarlaus staðfesting.",
+    body: "Finndu heimahleðslur nálægt þér eða aflaðu tekna með því að leigja út innstunguna þína. Bókaðu 20–80 kWh pakka — skannaðu til að byrja, tafarlaus staðfesting.",
     findCharger: "Finna hleðslu",
     becomeHost: "Verða gestgjafi",
     pkg: "Pakkar frá",
@@ -795,7 +795,7 @@ const LANG: Record<string, Omit<MarketT, "kicker">> = {
   ms: {
     headline1: "Cas berhampiran anda,",
     headline2: "jana pendapatan dari rumah.",
-    body: "Cari pengecas rumah berhampiran anda atau jana pendapatan dengan menyewakan soket anda. Tempah pakej 20–80 kWh — akses PIN, pengesahan segera.",
+    body: "Cari pengecas rumah berhampiran anda atau jana pendapatan dengan menyewakan soket anda. Tempah pakej 20–80 kWh — imbas untuk mula, pengesahan segera.",
     findCharger: "Cari pengecas",
     becomeHost: "Jadi tuan rumah",
     pkg: "Pakej dari",
