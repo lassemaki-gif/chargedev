@@ -902,6 +902,30 @@ const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
     title: "Pilot in North America",
     body: "Live pilot in Canada. Hosts receive earnings via international bank wire.",
   },
+  br: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Brazil. Hosts receive earnings via international bank wire.",
+  },
+  mx: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Mexico. Hosts receive earnings via international bank wire.",
+  },
+  cl: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Chile. Hosts receive earnings via international bank wire.",
+  },
+  co: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Colombia. Hosts receive earnings via international bank wire.",
+  },
+  pe: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Peru. Hosts receive earnings via international bank wire.",
+  },
+  au: {
+    title: "Pilot in Oceania",
+    body: "Live pilot in Australia. Hosts receive earnings via international bank wire.",
+  },
 };
 
 export const markets: Market[] = raw.map((m) => {
