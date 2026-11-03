@@ -1,6 +1,8 @@
 """ChargedEV API — EV charging marketplace backend."""
 import asyncio
+import base64
 import hashlib
+import io
 import logging
 import re
 import secrets
@@ -13,6 +15,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
+import qrcode
 import resend
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -656,22 +659,61 @@ async def geocode(address: str, city: str, country: str) -> tuple:
     return None, None
 
 
+def _qr_png_b64(url: str) -> str:
+    """Return a base64-encoded PNG QR for `url`, matching the on-site visual.
+
+    Palette matches the `/charge/success` page QR so buyers see the same mark
+    at scan-time as in the email. Error-correction M balances robustness vs
+    pixel density for the kWh-booking URL length.
+    """
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=2,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#F7FF2B", back_color="#0B0E13")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, listing: Listing) -> None:
     if not settings.resend_api_key:
         logger.warning("RESEND_API_KEY not set — skipping email")
         return
+    # Hardcoded prod host via settings.frontend_url — a preview URL would 404
+    # after deprovision; a lookalike would phish scanners. Same URL the on-site
+    # QR sticker and /charge/success page encode, so one scan path for all.
+    start_url = f"{settings.frontend_url}/charge/{listing.id}/start"
+    qr_attachment = None
     try:
-        resend.Emails.send({
+        qr_attachment = {
+            "filename": "chargedev-qr.png",
+            "content": _qr_png_b64(start_url),
+            "content_type": "image/png",
+            "content_id": "chargedev-qr",
+        }
+    except Exception as exc:
+        logger.error("QR generation failed for booking %d: %s", booking.id, exc)
+    try:
+        payload = {
             "from": settings.email_from,
             "to": [buyer_email],
             "subject": f"Your ChargedEV PIN — {listing.title}",
             "html": f"""
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
               <h2 style="color:#22C55E;margin-bottom:4px">Your charging PIN is ready ⚡</h2>
-              <p style="color:#555">Payment confirmed. Show this PIN to the host to start your session.</p>
-              <div style="background:#0A0F1E;border-radius:12px;padding:32px;text-align:center;margin:24px 0">
-                <p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px">Session PIN</p>
-                <p style="color:#22C55E;font-size:48px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
+              <p style="color:#555">Payment confirmed. Scan the QR to open the start page, or enter the PIN below as a backup.</p>
+              <div style="background:#0A0F1E;border-radius:12px;padding:24px;text-align:center;margin:24px 0">
+                {('<p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 12px">Scan to start</p>'
+                  '<img src="cid:chargedev-qr" alt="Scan to start charging" width="220" height="220" style="display:block;margin:0 auto 16px;border-radius:8px;max-width:100%;height:auto" />'
+                  f'<p style="margin:0 0 16px"><a href="{start_url}" style="color:#F7FF2B;font-size:13px;text-decoration:underline">Or tap here to open on this device</a></p>'
+                  '<div style="height:1px;background:#1F2937;margin:0 32px 16px"></div>') if qr_attachment else ''}
+                <p style="color:#9CA3AF;font-size:12px;text-transform:uppercase;letter-spacing:0.1em;margin:0 0 8px">Backup PIN</p>
+                <p style="color:#22C55E;font-size:40px;font-family:monospace;font-weight:700;letter-spacing:0.2em;margin:0">{booking.pin_code}</p>
               </div>
               <table style="width:100%;font-size:14px;color:#555;border-collapse:collapse">
                 <tr><td style="padding:6px 0;border-bottom:1px solid #eee">Charger</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:#111">{html_escape(listing.title)}</td></tr>
@@ -683,7 +725,10 @@ async def send_pin_email(buyer_email: str, buyer_name: str, booking: Booking, li
               <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
             </div>
             """,
-        })
+        }
+        if qr_attachment:
+            payload["attachments"] = [qr_attachment]
+        resend.Emails.send(payload)
         logger.info("PIN email sent to %s", buyer_email)
     except Exception as exc:
         logger.error("Failed to send PIN email: %s", exc)
