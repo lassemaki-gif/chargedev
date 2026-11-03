@@ -173,6 +173,27 @@ class Booking(Base):
     buyer: Mapped[User] = relationship("User", back_populates="bookings")
 
 
+class Message(Base):
+    """Booking-scoped async messages between buyer and host.
+
+    One thread per booking; the booking's (buyer_id, listing.seller_id) tuple
+    defines the two participants. Admin may read any thread but not send
+    (dispute mediation is out-of-band). Order is strictly by created_at;
+    polling-based refresh on the client, no websockets.
+    """
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), nullable=False, index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    body: Mapped[str] = mapped_column(String(2000), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)
+    # Stamped when the counter-party fetches the thread; admin reads do not
+    # mark messages read, so the host/buyer unread badge stays accurate even
+    # after dispute review.
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
 class OcppChargePoint(Base):
     """Registered OCPP charge point (wallbox) linked to a listing."""
     __tablename__ = "ocpp_charge_points"

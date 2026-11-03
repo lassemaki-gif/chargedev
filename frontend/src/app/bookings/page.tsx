@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Nav } from "@/components/Nav";
+import { MessageThread } from "@/components/MessageThread";
 import { api, Booking } from "@/lib/api";
 
 function statusBadge(s: string) {
@@ -115,6 +116,7 @@ export default function BookingsPage() {
 }
 
 function BookingCard({ booking: b }: { booking: Booking }) {
+  const [msgOpen, setMsgOpen] = useState(false);
   const date = new Date(b.created_at).toLocaleDateString(undefined, {
     day: "numeric", month: "short", year: "numeric",
   });
@@ -160,6 +162,22 @@ function BookingCard({ booking: b }: { booking: Booking }) {
 
       {b.status === "pending" && (
         <p className="text-ash text-xs mt-2">Payment pending — your PIN will appear here once confirmed.</p>
+      )}
+
+      {b.status !== "pending" && (
+        <div className="mt-3">
+          <button
+            onClick={() => setMsgOpen((v) => !v)}
+            className="text-ash hover:text-white text-xs transition-colors"
+          >
+            {msgOpen ? "Hide messages ↑" : "Message host ↓"}
+          </button>
+          {msgOpen && (
+            <div className="mt-2">
+              <MessageThread bookingId={b.id} viewerRole="buyer" />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

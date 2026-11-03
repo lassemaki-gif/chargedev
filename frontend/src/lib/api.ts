@@ -126,6 +126,14 @@ export const api = {
   verifyCheckout: (bookingId: number) =>
     req<Booking>("GET", `/api/checkout/verify/${bookingId}`),
 
+  // Booking messages (buyer ↔ host)
+  listMessages: (bookingId: number) =>
+    req<MessageOut[]>("GET", `/api/bookings/${bookingId}/messages`),
+  sendMessage: (bookingId: number, body: string) =>
+    req<MessageOut>("POST", `/api/bookings/${bookingId}/messages`, { body }),
+  unreadCount: (bookingId: number) =>
+    req<{ booking_id: number; unread: number }>("GET", `/api/bookings/${bookingId}/messages/unread-count`),
+
   // Shelly (Premium hosts)
   shellyConnect: (listingId: number, body: { device_id: string; auth_key: string; server: string }) =>
     req<ShellyStatus>("POST", `/api/seller/shelly/${listingId}`, body),
@@ -314,6 +322,17 @@ export interface HostSessionOut {
   expires_at: string;
   stopped_at: string | null;
   energy_consumed_wh: number;
+}
+
+export interface MessageOut {
+  id: number;
+  booking_id: number;
+  sender_id: number;
+  sender_name: string | null;
+  sender_role: "buyer" | "host" | "admin" | null;
+  body: string;
+  created_at: string;
+  read_at: string | null;
 }
 
 export interface HostPayoutOut {

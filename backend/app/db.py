@@ -72,6 +72,17 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_country VARCHAR(2)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_method VARCHAR(16) NOT NULL DEFAULT 'sepa'",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_details VARCHAR(4096)",
+                    # Booking-scoped messaging between buyer and host.
+                    """CREATE TABLE IF NOT EXISTS messages (
+                        id SERIAL PRIMARY KEY,
+                        booking_id INTEGER NOT NULL REFERENCES bookings(id),
+                        sender_id INTEGER NOT NULL REFERENCES users(id),
+                        body VARCHAR(2000) NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        read_at TIMESTAMP
+                    )""",
+                    "CREATE INDEX IF NOT EXISTS ix_messages_booking_id ON messages (booking_id)",
+                    "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_transaction_id VARCHAR(64)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_refunded_at TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0",

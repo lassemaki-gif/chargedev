@@ -2,6 +2,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
+import { MessageThread } from "@/components/MessageThread";
 import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus, PayoutAccount, HostSessionOut } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -769,39 +770,75 @@ function SellerDashboardInner() {
         ) : (
           <div className="space-y-3">
             {bookings.map((b) => (
-              <div key={b.id} className="card">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="font-semibold text-white text-sm sm:text-base truncate">{b.listing_title}</div>
-                    <div className="text-ash text-xs sm:text-sm mt-0.5">
-                      <span className="block sm:inline">{b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)}</span>
-                      <span className="block sm:inline sm:ml-1">you earn <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span></span>
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 flex-wrap">
-                      {statusBadge(b.status)}
-                      {b.pin_code && (
-                        <span className="font-mono text-volt text-sm bg-volt/10 px-2 py-0.5 rounded">
-                          PIN: {b.pin_code}
-                        </span>
-                      )}
-                      {b.paid_out && <span className="badge-green">Transferred</span>}
-                    </div>
-                  </div>
-                  {(b.status === "confirmed" || b.status === "active") && (
-                    <button
-                      onClick={() => complete(b.id)}
-                      disabled={completing === b.id}
-                      className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-volt/10 text-volt hover:bg-volt/20 transition-colors font-medium disabled:opacity-50"
-                    >
-                      {completing === b.id ? "Saving…" : "Mark complete"}
-                    </button>
-                  )}
-                </div>
-              </div>
+              <SellerBookingRow
+                key={b.id}
+                b={b}
+                completing={completing}
+                onComplete={() => complete(b.id)}
+              />
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SellerBookingRow({
+  b,
+  completing,
+  onComplete,
+}: {
+  b: Booking;
+  completing: number | null;
+  onComplete: () => void;
+}) {
+  const [msgOpen, setMsgOpen] = useState(false);
+  return (
+    <div className="card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="font-semibold text-white text-sm sm:text-base truncate">{b.listing_title}</div>
+          <div className="text-ash text-xs sm:text-sm mt-0.5">
+            <span className="block sm:inline">{b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)}</span>
+            <span className="block sm:inline sm:ml-1">you earn <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span></span>
+          </div>
+          <div className="mt-2 flex items-center gap-3 flex-wrap">
+            {statusBadge(b.status)}
+            {b.pin_code && (
+              <span className="font-mono text-volt text-sm bg-volt/10 px-2 py-0.5 rounded">
+                PIN: {b.pin_code}
+              </span>
+            )}
+            {b.paid_out && <span className="badge-green">Transferred</span>}
+          </div>
+        </div>
+        {(b.status === "confirmed" || b.status === "active") && (
+          <button
+            onClick={onComplete}
+            disabled={completing === b.id}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-volt/10 text-volt hover:bg-volt/20 transition-colors font-medium disabled:opacity-50"
+          >
+            {completing === b.id ? "Saving…" : "Mark complete"}
+          </button>
+        )}
+      </div>
+
+      {b.status !== "pending" && (
+        <div className="mt-3">
+          <button
+            onClick={() => setMsgOpen((v) => !v)}
+            className="text-ash hover:text-white text-xs transition-colors"
+          >
+            {msgOpen ? "Hide messages ↑" : "Message buyer ↓"}
+          </button>
+          {msgOpen && (
+            <div className="mt-2">
+              <MessageThread bookingId={b.id} viewerRole="host" counterpartyName={b.buyer_name ?? undefined} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -37,16 +37,17 @@ from .auth import (
 from .config import settings
 from .db import get_session, init_db
 from .models import (
-    Booking, BookingStatus, HostPayout, HostSession, Listing, PACKAGES_KWH, Review,
+    Booking, BookingStatus, HostPayout, HostSession, Listing, Message, PACKAGES_KWH, Review,
     OcppChargePoint, OcppSession, ShellySession, User, UserRole,
 )
 from . import payouts, sumup
 from .schemas import (
     BookingCreate, BookingOut, ChargeStartContext, ForgotPasswordRequest, HostPayoutOut,
-    HostSessionOut, ListingCreate, ListingOut, LoginRequest, MarkPaidIn, OcppChargePointOut,
-    OcppRegisterRequest, PayoutAccountIn, PayoutAccountOut, PlatformStats, ProfileUpdate,
-    RegisterRequest, ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings,
-    ShellyConfigRequest, ShellyStatusOut, TokenResponse, UserOut, WeeklyAvailabilitySchema,
+    HostSessionOut, ListingCreate, ListingOut, LoginRequest, MarkPaidIn, MessageIn, MessageOut,
+    OcppChargePointOut, OcppRegisterRequest, PayoutAccountIn, PayoutAccountOut, PlatformStats,
+    ProfileUpdate, RegisterRequest, ResetPasswordRequest, ReviewCreate, ReviewOut, SellerEarnings,
+    ShellyConfigRequest, ShellyStatusOut, TokenResponse, UnreadCountOut, UserOut,
+    WeeklyAvailabilitySchema,
 )
 
 
@@ -3016,3 +3017,185 @@ async def new_bookings_since(
         )
     )).scalars().all()
     return {"count": len(rows), "bookings": [{"id": b.id, "listing_id": b.listing_id} for b in rows]}
+
+
+# ── Booking messages (buyer ↔ host) ───────────────────────────────────────────
+
+# Simple in-process rate limit: last-send timestamp per sender id.
+# Lives beside the process; a restart resets it — fine for a pilot, upgrade to
+# Redis if we ever go multi-replica.
+_message_last_sent: dict[int, datetime] = {}
+
+
+async def _booking_participants(session: AsyncSession, booking: Booking) -> tuple[Optional[User], Optional[User], Optional[Listing]]:
+    """Return (buyer, host, listing) for a booking."""
+    listing = await session.get(Listing, booking.listing_id)
+    buyer = await session.get(User, booking.buyer_id)
+    host = await session.get(User, listing.seller_id) if listing else None
+    return buyer, host, listing
+
+
+async def _assert_booking_participant(
+    session: AsyncSession, booking_id: int, user: User,
+) -> tuple[Booking, Listing]:
+    """Allow buyer, host, and admin. 404 if the booking is missing, 403 otherwise."""
+    b = await session.get(Booking, booking_id)
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    listing = await session.get(Listing, b.listing_id)
+    if not listing:
+        raise HTTPException(404, "Listing not found")
+    is_buyer = b.buyer_id == user.id
+    is_host = listing.seller_id == user.id
+    is_admin = user.role == UserRole.admin
+    if not (is_buyer or is_host or is_admin):
+        raise HTTPException(403, "Not a participant in this booking")
+    return b, listing
+
+
+def _message_role(sender_id: int, booking: Booking, listing: Listing) -> str:
+    if sender_id == booking.buyer_id:
+        return "buyer"
+    if sender_id == listing.seller_id:
+        return "host"
+    return "admin"
+
+
+async def _message_out(m: Message, session: AsyncSession, booking: Booking, listing: Listing) -> MessageOut:
+    sender = await session.get(User, m.sender_id)
+    return MessageOut(
+        id=m.id,
+        booking_id=m.booking_id,
+        sender_id=m.sender_id,
+        sender_name=sender.full_name if sender else None,
+        sender_role=_message_role(m.sender_id, booking, listing),
+        body=m.body,
+        created_at=m.created_at,
+        read_at=m.read_at,
+    )
+
+
+async def send_message_notification_email(
+    *, recipient_email: str, recipient_name: str, sender_name: str,
+    booking_id: int, listing_title: str, body_preview: str,
+) -> None:
+    """Fire-and-forget email to the other party on a new message."""
+    if not settings.resend_api_key:
+        return
+    deep_link = f"{settings.frontend_url}/bookings"
+    try:
+        resend.Emails.send({
+            "from": settings.email_from,
+            "to": [recipient_email],
+            "subject": f"New message from {sender_name} · ChargedEV",
+            "html": f"""
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+              <h2 style="color:#22C55E;margin-bottom:4px">New message 💬</h2>
+              <p style="color:#555">{html_escape(sender_name)} sent you a message about booking #{booking_id} — {html_escape(listing_title)}.</p>
+              <div style="background:#F3F4F6;border-radius:12px;padding:16px;margin:16px 0;color:#111;white-space:pre-wrap">{html_escape(body_preview)}</div>
+              <p><a href="{deep_link}" style="color:#F7FF2B;text-decoration:underline">Open your bookings to reply →</a></p>
+              <p style="color:#9CA3AF;font-size:12px;margin-top:24px">ChargedEV · chargedev.io</p>
+            </div>
+            """,
+        })
+        logger.info("Message notification email sent to %s (booking %d)", recipient_email, booking_id)
+    except Exception as exc:
+        logger.error("Failed to send message notification: %s", exc)
+
+
+@app.post("/api/bookings/{booking_id}/messages", response_model=MessageOut)
+async def send_booking_message(
+    booking_id: int,
+    body: MessageIn,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    b, listing = await _assert_booking_participant(session, booking_id, current_user)
+
+    # Admin may read but not send; dispute mediation is out-of-band.
+    if current_user.role == UserRole.admin and current_user.id not in (b.buyer_id, listing.seller_id):
+        raise HTTPException(403, "Admin may read this thread but not post to it.")
+
+    text = (body.body or "").strip()
+    if len(text) < 1:
+        raise HTTPException(400, "Message body is required.")
+    if len(text) > 2000:
+        raise HTTPException(400, "Message is too long (max 2000 characters).")
+
+    # 2-second cooldown per sender: catches double-click, light scripted spam.
+    now = datetime.utcnow()
+    last = _message_last_sent.get(current_user.id)
+    if last and (now - last).total_seconds() < 2:
+        raise HTTPException(429, "Please wait a moment before sending another message.")
+    _message_last_sent[current_user.id] = now
+
+    msg = Message(
+        booking_id=booking_id,
+        sender_id=current_user.id,
+        body=text,
+        created_at=now,
+    )
+    session.add(msg)
+    await session.commit()
+    await session.refresh(msg)
+
+    # Fire the notification email async so send never blocks on Resend.
+    try:
+        buyer, host, _ = await _booking_participants(session, b)
+        recipient = host if current_user.id == b.buyer_id else buyer
+        if recipient and recipient.email and recipient.id != current_user.id:
+            asyncio.create_task(send_message_notification_email(
+                recipient_email=recipient.email,
+                recipient_name=recipient.full_name,
+                sender_name=current_user.full_name,
+                booking_id=b.id,
+                listing_title=listing.title,
+                body_preview=text[:200],
+            ))
+    except Exception as exc:
+        logger.error("Message notification dispatch failed: %s", exc)
+
+    return await _message_out(msg, session, b, listing)
+
+
+@app.get("/api/bookings/{booking_id}/messages", response_model=list[MessageOut])
+async def list_booking_messages(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    b, listing = await _assert_booking_participant(session, booking_id, current_user)
+    rows = (await session.execute(
+        select(Message).where(Message.booking_id == booking_id).order_by(Message.created_at)
+    )).scalars().all()
+
+    # Mark the counter-party's messages as read for this viewer. Admin reads
+    # never mark anything read, so the unread badge stays accurate for buyer/host.
+    if current_user.role != UserRole.admin:
+        now = datetime.utcnow()
+        changed = False
+        for m in rows:
+            if m.sender_id != current_user.id and m.read_at is None:
+                m.read_at = now
+                changed = True
+        if changed:
+            await session.commit()
+
+    return [await _message_out(m, session, b, listing) for m in rows]
+
+
+@app.get("/api/bookings/{booking_id}/messages/unread-count", response_model=UnreadCountOut)
+async def booking_unread_count(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    b, _ = await _assert_booking_participant(session, booking_id, current_user)
+    unread = (await session.execute(
+        select(func.count(Message.id)).where(
+            Message.booking_id == booking_id,
+            Message.sender_id != current_user.id,
+            Message.read_at.is_(None),
+        )
+    )).scalar_one()
+    return UnreadCountOut(booking_id=b.id, unread=int(unread))

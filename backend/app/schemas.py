@@ -335,6 +335,30 @@ class StripeStatusResponse(BaseModel):
 
 # ── Admin stats ───────────────────────────────────────────────────────────────
 
+# ── Booking messages ──────────────────────────────────────────────────────────
+
+class MessageIn(BaseModel):
+    body: str
+
+
+class MessageOut(BaseModel):
+    id: int
+    booking_id: int
+    sender_id: int
+    sender_name: Optional[str] = None
+    # 'buyer' | 'host' | 'admin' — lets the UI render the bubble on the
+    # correct side without a per-viewer sender_id comparison.
+    sender_role: Optional[str] = None
+    body: str
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+
+class UnreadCountOut(BaseModel):
+    booking_id: int
+    unread: int
+
+
 class PlatformStats(BaseModel):
     total_users: int
     total_sellers: int
