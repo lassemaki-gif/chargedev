@@ -890,10 +890,13 @@ const raw: Array<{
 ];
 
 // Per-market override of the "Available across Europe" trust block. Needed
-// for markets outside the EU footprint (US/CA pilot), where the default
-// English copy ("Covering EU, UK, Norway, Switzerland and Iceland") is wrong.
+// for markets outside the EU footprint, where the default localized copy
+// (e.g. "Covering EU, UK, Norway, Switzerland and Iceland") is wrong.
+// Each entry is written in that market's primary site language so the
+// trust block matches the rest of the page instead of switching to English.
 // Add an entry here when launching a new region.
 const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
+  // North America — English
   us: {
     title: "Pilot in North America",
     body: "Live pilot in the United States. Hosts receive earnings via international bank wire.",
@@ -902,26 +905,73 @@ const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
     title: "Pilot in North America",
     body: "Live pilot in Canada. Hosts receive earnings via international bank wire.",
   },
+  // Latin America — Spanish / Brazilian Portuguese
   br: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Brazil. Hosts receive earnings via international bank wire.",
+    title: "Piloto na América Latina",
+    body: "Piloto ao vivo no Brasil. Os anfitriões recebem seus ganhos por transferência bancária internacional.",
   },
   mx: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Mexico. Hosts receive earnings via international bank wire.",
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en México. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
   },
   cl: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Chile. Hosts receive earnings via international bank wire.",
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en Chile. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
   },
   co: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Colombia. Hosts receive earnings via international bank wire.",
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en Colombia. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
   },
   pe: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Peru. Hosts receive earnings via international bank wire.",
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en Perú. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
   },
+  ar: {
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en Argentina. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
+  },
+  pr: {
+    title: "Piloto en América Latina",
+    body: "Piloto en vivo en Puerto Rico. Los anfitriones reciben sus ganancias por transferencia bancaria internacional.",
+  },
+  // Asia — per-language
+  jp: {
+    title: "アジアで試験運用中",
+    body: "日本で試験運用中。ホストへの支払いは国際銀行送金で行います。",
+  },
+  kr: {
+    title: "아시아 시범 운영",
+    body: "한국에서 시범 운영 중. 호스트는 국제 송금으로 수익을 받습니다.",
+  },
+  hk: {
+    title: "亞洲試營運",
+    body: "於香港試營運中。房東透過國際電匯收取收益。",
+  },
+  tw: {
+    title: "亞洲試營運",
+    body: "於台灣試營運中。房東透過國際電匯收取收益。",
+  },
+  sg: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Singapore. Hosts receive earnings via international bank wire.",
+  },
+  th: {
+    title: "นำร่องในเอเชีย",
+    body: "เปิดให้บริการนำร่องในประเทศไทย เจ้าบ้านจะได้รับรายได้ผ่านการโอนเงินระหว่างประเทศ",
+  },
+  my: {
+    title: "Perintis di Asia",
+    body: "Perintis langsung di Malaysia. Tuan rumah menerima pendapatan melalui pindahan bank antarabangsa.",
+  },
+  ph: {
+    title: "Pilot in Asia",
+    body: "Live pilot in the Philippines. Hosts receive earnings via international bank wire.",
+  },
+  id: {
+    title: "Uji coba di Asia",
+    body: "Uji coba aktif di Indonesia. Tuan rumah menerima pendapatan melalui transfer bank internasional.",
+  },
+  // Oceania — English (au, nz)
   au: {
     title: "Pilot in Oceania",
     body: "Live pilot in Australia. Hosts receive earnings via international bank wire.",
@@ -929,50 +979,6 @@ const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
   nz: {
     title: "Pilot in Oceania",
     body: "Live pilot in New Zealand. Hosts receive earnings via international bank wire.",
-  },
-  ar: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Argentina. Hosts receive earnings via international bank wire.",
-  },
-  pr: {
-    title: "Pilot in Latin America",
-    body: "Live pilot in Puerto Rico. Hosts receive earnings via international bank wire.",
-  },
-  jp: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Japan. Hosts receive earnings via international bank wire.",
-  },
-  kr: {
-    title: "Pilot in Asia",
-    body: "Live pilot in South Korea. Hosts receive earnings via international bank wire.",
-  },
-  hk: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Hong Kong. Hosts receive earnings via international bank wire.",
-  },
-  tw: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Taiwan. Hosts receive earnings via international bank wire.",
-  },
-  sg: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Singapore. Hosts receive earnings via international bank wire.",
-  },
-  th: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Thailand. Hosts receive earnings via international bank wire.",
-  },
-  my: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Malaysia. Hosts receive earnings via international bank wire.",
-  },
-  ph: {
-    title: "Pilot in Asia",
-    body: "Live pilot in the Philippines. Hosts receive earnings via international bank wire.",
-  },
-  id: {
-    title: "Pilot in Asia",
-    body: "Live pilot in Indonesia. Hosts receive earnings via international bank wire.",
   },
 };
 
