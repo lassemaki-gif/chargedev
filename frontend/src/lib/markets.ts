@@ -889,10 +889,30 @@ const raw: Array<{
   { id: "pr", countryNameEn: "Puerto Rico",     currencySymbol: "$",    pricePerKwh: 0.48, locale: "es-PR", cities: "San Juan · Ponce · Bayamón",      lang: "es" },
 ];
 
-export const markets: Market[] = raw.map((m) => ({
-  ...m,
-  t: t(m.lang, m.countryNameEn),
-}));
+// Per-market override of the "Available across Europe" trust block. Needed
+// for markets outside the EU footprint (US/CA pilot), where the default
+// English copy ("Covering EU, UK, Norway, Switzerland and Iceland") is wrong.
+// Add an entry here when launching a new region.
+const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
+  us: {
+    title: "Pilot in North America",
+    body: "Live pilot in the United States. Hosts receive earnings via international bank wire.",
+  },
+  ca: {
+    title: "Pilot in North America",
+    body: "Live pilot in Canada. Hosts receive earnings via international bank wire.",
+  },
+};
+
+export const markets: Market[] = raw.map((m) => {
+  const tt = t(m.lang, m.countryNameEn);
+  const cov = COVERAGE_OVERRIDE[m.id];
+  if (cov) {
+    tt.trustEuropeTitle = cov.title;
+    tt.trustEuropeBody = cov.body;
+  }
+  return { ...m, t: tt };
+});
 
 export const marketById = Object.fromEntries(markets.map((m) => [m.id, m]));
 

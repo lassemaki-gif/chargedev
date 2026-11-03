@@ -5,6 +5,7 @@ import { markets, packagePrice } from "@/lib/markets";
 const REGIONS = [
   { label: "European Union", ids: ["at","be","bg","hr","cy","cz","dk","ee","fi","fr","de","gr","hu","ie","it","lv","lt","lu","mt","nl","pl","pt","ro","sk","si","es","se"] },
   { label: "Outside EU", ids: ["gb","ch","no","is"] },
+  { label: "North America", ids: ["us","ca"] },
 ];
 
 function MarketGrid() {
@@ -217,7 +218,7 @@ export default function Landing() {
           {[
             { icon: "📱", t: "Scan to start", b: "Every charger has a printed QR. Scan it to start your paid session — no scan, no energy flows." },
             { icon: "⚡", t: "Instant confirmation", b: "Your QR + backup PIN arrive the moment payment clears — no waiting, no back-and-forth." },
-            { icon: "🌍", t: "Available across Europe", b: "Covering EU, UK, Norway, Switzerland and Iceland." },
+            { icon: "🌍", t: "Europe and North America", b: "Live in the EU, UK, Norway, Switzerland, Iceland, and piloting in the US and Canada." },
           ].map((f) => (
             <div key={f.t} className="flex flex-col gap-3">
               <span className="text-3xl">{f.icon}</span>
@@ -242,7 +243,7 @@ export default function Landing() {
 
       {/* Market hub */}
       <section className="border-t border-border px-6 lg:px-16 py-16">
-        <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Available across Europe</p>
+        <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Europe · North America</p>
         <h2 className="text-2xl font-bold text-white mb-8">Select your country</h2>
         <MarketGrid />
       </section>
