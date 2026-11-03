@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Nav } from "@/components/Nav";
-import { api, PlatformStats, User, Listing, Booking, PendingPayoutHost, HostPayoutOut, saveRole } from "@/lib/api";
+import { api, PlatformStats, User, Listing, Booking, PendingPayoutHost, HostPayoutOut, PayoutWireDetails, saveRole } from "@/lib/api";
 
 type Tab = "overview" | "users" | "listings" | "bookings" | "payouts";
 
@@ -31,6 +31,7 @@ export default function AdminDashboard() {
   const [payoutsError, setPayoutsError] = useState<string | null>(null);
   const [batchFilter, setBatchFilter] = useState<"pending" | "paid" | "all">("pending");
   const [markPaidRef, setMarkPaidRef] = useState<{ id: number; value: string } | null>(null);
+  const [wireDetails, setWireDetails] = useState<PayoutWireDetails | null>(null);
 
   async function adminLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -131,6 +132,15 @@ export default function AdminDashboard() {
       await loadPayouts();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Mark paid failed");
+    }
+  }
+
+  async function showWireDetails(payoutId: number) {
+    try {
+      const d = await api.adminPayoutWireDetails(payoutId);
+      setWireDetails(d);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Could not load wire details");
     }
   }
 
@@ -356,11 +366,14 @@ export default function AdminDashboard() {
                             </span>
                           </div>
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
+                          {p.payout_method === "manual_intl" && (
+                            <span className="badge-yellow">Wire ({p.payout_country ?? "?"})</span>
+                          )}
                           {p.iban_set ? (
                             <span className="badge-green">Payable</span>
                           ) : (
-                            <span className="badge-yellow">Awaiting IBAN</span>
+                            <span className="badge-yellow">Awaiting payout setup</span>
                           )}
                         </div>
                       </div>
@@ -412,7 +425,11 @@ export default function AdminDashboard() {
                           <div className="mt-1 flex items-center gap-3 text-xs text-ash flex-wrap">
                             <span className="text-volt text-sm font-semibold">€{b.net_eur.toFixed(2)}</span>
                             <span>{b.booking_count} booking{b.booking_count !== 1 ? "s" : ""}</span>
-                            {b.iban_last4 && <span>IBAN ••{b.iban_last4}</span>}
+                            {b.payout_method === "manual_intl" ? (
+                              <span className="badge-yellow">Wire ({b.payout_country ?? "?"})</span>
+                            ) : (
+                              b.iban_last4 && <span>IBAN ••{b.iban_last4}</span>
+                            )}
                             {b.account_holder && <span>{b.account_holder}</span>}
                           </div>
                           <div className="mt-1 text-ash text-xs">
@@ -422,12 +439,21 @@ export default function AdminDashboard() {
                           </div>
                         </div>
                         <div className="flex gap-2 shrink-0">
-                          <button
-                            onClick={() => downloadBatchCsv(b.id)}
-                            className="text-xs text-ash hover:text-white border border-border rounded px-2 py-1"
-                          >
-                            CSV
-                          </button>
+                          {b.payout_method === "manual_intl" ? (
+                            <button
+                              onClick={() => showWireDetails(b.id)}
+                              className="text-xs text-ash hover:text-white border border-border rounded px-2 py-1"
+                            >
+                              Wire details
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => downloadBatchCsv(b.id)}
+                              className="text-xs text-ash hover:text-white border border-border rounded px-2 py-1"
+                            >
+                              CSV
+                            </button>
+                          )}
                           {b.status === "pending" && (
                             <button
                               onClick={() => setMarkPaidRef({ id: b.id, value: "" })}
@@ -472,6 +498,44 @@ export default function AdminDashboard() {
                   <div className="flex gap-2 justify-end">
                     <button onClick={() => setMarkPaidRef(null)} className="btn-outline text-sm px-4">Cancel</button>
                     <button onClick={confirmMarkPaid} className="btn-volt text-sm px-4">Mark paid</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Wire-details modal (manual_intl payouts) */}
+            {wireDetails && (
+              <div
+                className="fixed inset-0 bg-black/70 flex items-center justify-center px-4 z-50"
+                onClick={() => setWireDetails(null)}
+              >
+                <div
+                  className="card max-w-xl w-full"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 className="font-semibold text-white mb-2">
+                    Wire details — payout #{wireDetails.payout_id}
+                  </h3>
+                  <p className="text-ash text-xs mb-3">
+                    Use these to submit an international wire from the business bank portal. Mark the batch paid
+                    once the wire goes out.
+                  </p>
+                  <dl className="text-xs text-ash grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mb-3">
+                    <dt>Beneficiary</dt><dd className="text-white">{wireDetails.account_holder || wireDetails.host_name}</dd>
+                    <dt>Country</dt><dd className="text-white">{wireDetails.payout_country || "—"}</dd>
+                    <dt>Amount</dt><dd className="text-white">€{wireDetails.net_eur.toFixed(2)} {wireDetails.currency}</dd>
+                    <dt>Reference</dt><dd className="text-white">{wireDetails.reference}</dd>
+                  </dl>
+                  <label className="block text-ash text-xs mb-1">Bank wire details</label>
+                  <textarea
+                    value={wireDetails.wire_details}
+                    readOnly
+                    className="input w-full font-mono text-xs"
+                    rows={10}
+                    onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+                  />
+                  <div className="flex gap-2 justify-end mt-3">
+                    <button onClick={() => setWireDetails(null)} className="btn-outline text-sm px-4">Close</button>
                   </div>
                 </div>
               </div>

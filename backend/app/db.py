@@ -67,6 +67,11 @@ async def init_db(retries: int = 5, delay: float = 3.0) -> None:
                     # need to collect each host's IBAN again for weekly SEPA batches.
                     "ALTER TABLE users ALTER COLUMN iban TYPE VARCHAR(255)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_account_holder VARCHAR(120)",
+                    # Multi-region payout support: non-SEPA hosts use payout_method='manual_intl'
+                    # with free-text wire instructions in payout_details (Fernet-encrypted).
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_country VARCHAR(2)",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_method VARCHAR(16) NOT NULL DEFAULT 'sepa'",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS payout_details VARCHAR(4096)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_transaction_id VARCHAR(64)",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS joining_fee_refunded_at TIMESTAMP",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0",

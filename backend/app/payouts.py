@@ -16,10 +16,16 @@ Flow:
 A booking is "ready to pay out" when:
     - status == completed
     - paid_out == false
-    - the host has an iban + account_holder on file
+    - the host has a complete payout destination on file, which means either:
+        * payout_method='sepa' with iban + account_holder, or
+        * payout_method='manual_intl' with payout_details + account_holder
 
-Hosts without IBAN appear as "blocked" in the preview — we hold their earnings
-until they add one, rather than skipping them silently.
+SEPA rows go into the generated CSV. Manual_intl rows go into the admin's
+"wire these by hand" view instead (see list_manual_payouts in main.py); they
+still get a HostPayout row so booking locking and mark-paid work the same way.
+
+Hosts with no destination at all appear as "blocked" in the preview — we hold
+their earnings until they add one, rather than skipping them silently.
 """
 
 from __future__ import annotations
@@ -83,13 +89,24 @@ async def pending_by_host(session: AsyncSession) -> list[dict]:
             # IBAN is encrypted at rest; we only need the last-4 for display,
             # which the user's own payout_account_set logic exposes elsewhere.
             # Avoid decrypting here to keep this preview endpoint cheap.
+            method = host.payout_method or "sepa"
+            if method == "sepa":
+                ready = bool(host.iban and host.payout_account_holder)
+            elif method == "manual_intl":
+                ready = bool(host.payout_details and host.payout_account_holder)
+            else:
+                ready = False
             slot = {
                 "host_id": host.id,
                 "host_name": host.full_name,
                 "host_email": host.email,
-                "iban_set": bool(host.iban and host.payout_account_holder),
+                # Legacy name kept for API compat; now means "payout destination ready"
+                # regardless of method (SEPA IBAN or manual_intl wire details).
+                "iban_set": ready,
                 "account_holder": host.payout_account_holder,
-                "iban_last4": None,  # populated at batch-generation time
+                "payout_method": method,
+                "payout_country": host.payout_country,
+                "iban_last4": None,  # populated at batch-generation time (SEPA only)
                 "booking_count": 0,
                 "net_eur": 0.0,
                 "earliest": b.created_at,
@@ -171,13 +188,18 @@ async def generate_batch(
             continue
 
         host = await session.get(User, row["host_id"])
-        try:
-            iban_full = decrypt_iban(host.iban) if host and host.iban else ""
-        except Exception:
-            # IBAN decrypt failed — skip this host, admin will see the row
-            # under "pending" but unable to batch until re-saved.
-            continue
-        iban_last4 = iban_full[-4:] if len(iban_full) >= 4 else iban_full
+        method = row.get("payout_method") or "sepa"
+        iban_last4 = None
+        if method == "sepa":
+            try:
+                iban_full = decrypt_iban(host.iban) if host and host.iban else ""
+            except Exception:
+                # IBAN decrypt failed — skip this host, admin will see the row
+                # under "pending" but unable to batch until re-saved.
+                continue
+            iban_last4 = iban_full[-4:] if len(iban_full) >= 4 else iban_full
+        # manual_intl rows go into HostPayout with iban_last4=None; the admin
+        # will pull decrypted wire details via the manual-payouts endpoint.
 
         payout = HostPayout(
             host_id=row["host_id"],

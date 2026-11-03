@@ -238,15 +238,23 @@ class SellerEarnings(BaseModel):
 
 
 class PayoutAccountIn(BaseModel):
-    iban: str
     account_holder: str
+    # 'sepa' (uses iban) or 'manual_intl' (uses payout_details).
+    payout_method: str = "sepa"
+    payout_country: Optional[str] = None  # ISO-3166 alpha-2, required for manual_intl
+    iban: Optional[str] = None  # required when payout_method == 'sepa'
+    payout_details: Optional[str] = None  # required when payout_method == 'manual_intl'
 
 
 class PayoutAccountOut(BaseModel):
-    # Never return the full IBAN once stored; show the tail so the host can
-    # recognise what's on file without re-exposing full account details.
+    # Never return the full IBAN or wire details once stored; show enough for
+    # the host to recognise what's on file without re-exposing full account data.
     iban_last4: Optional[str] = None
     account_holder: Optional[str] = None
+    payout_method: Optional[str] = None
+    payout_country: Optional[str] = None
+    # True if non-empty free-text wire instructions are on file (manual_intl mode).
+    payout_details_set: bool = False
     is_set: bool = False
 
 
@@ -256,6 +264,8 @@ class PendingPayoutHost(BaseModel):
     host_email: str
     iban_set: bool
     account_holder: Optional[str] = None
+    payout_method: Optional[str] = None  # 'sepa' or 'manual_intl'
+    payout_country: Optional[str] = None
     booking_count: int
     net_eur: float
     earliest: datetime
@@ -272,6 +282,9 @@ class HostPayoutOut(BaseModel):
     booking_count: int
     iban_last4: Optional[str] = None
     account_holder: Optional[str] = None
+    # 'sepa' or 'manual_intl' — tells admin which flow to use for this row.
+    payout_method: Optional[str] = None
+    payout_country: Optional[str] = None
     status: str
     sepa_reference: Optional[str] = None
     created_at: datetime

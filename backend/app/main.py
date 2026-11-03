@@ -1272,7 +1272,7 @@ async def seller_earnings(
         stripe_onboarded=False,
         stripe_account_id=None,
         joining_fee_paid=current_user.joining_fee_paid,
-        payout_account_set=bool(current_user.iban and current_user.payout_account_holder),
+        payout_account_set=_host_payout_ready(current_user),
     )
 
 
@@ -1282,6 +1282,17 @@ _IBAN_SHAPE_RE = re.compile(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
 # Latin-1 Supplement + Latin Extended covers Finnish, Swedish, etc.;
 # allows apostrophe, hyphen, period, and space for compound names.
 _ACCOUNT_HOLDER_RE = re.compile(r"[A-Za-zÀ-ÿ'\.\- ]{2,120}$")
+# ISO-3166 alpha-2 (two uppercase letters). Checked exactly; we don't validate
+# against the live country list — a typo'd country is caught at wire-time by
+# the admin, not at save-time.
+_COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$")
+# SEPA zone (as of 2026-11): 36 countries. Hosts in these use IBAN + SEPA batches.
+# Everyone else uses payout_method='manual_intl' and is wired by the admin.
+_SEPA_COUNTRIES = frozenset({
+    "AT", "BE", "BG", "CH", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR",
+    "GB", "GR", "HR", "HU", "IE", "IS", "IT", "LI", "LT", "LU", "LV", "MC",
+    "MT", "NL", "NO", "PL", "PT", "RO", "SE", "SI", "SK", "SM", "VA", "AD",
+})
 
 
 def _normalize_iban(raw: str) -> str:
@@ -1320,20 +1331,75 @@ def _decrypt_iban(ciphertext: str) -> str:
         return ciphertext
 
 
+def _host_payout_ready(u: User) -> bool:
+    """True when the host has a complete payout destination on file.
+
+    Shared by the A9 checkout gate, the seller earnings view, and the payouts
+    pending-by-host preview — one place defines "payable".
+    """
+    if not u.payout_account_holder:
+        return False
+    method = u.payout_method or "sepa"
+    if method == "sepa":
+        return bool(u.iban)
+    if method == "manual_intl":
+        return bool(u.payout_details)
+    return False
+
+
+def _validate_payout_details(raw: str) -> str:
+    """Normalise and sanity-check the free-text wire instructions for manual_intl hosts.
+
+    This is intentionally liberal: we can't validate a US routing number *and*
+    a Canadian transit number *and* every other country's quirks in one regex,
+    and for a pilot the admin eyeballs each wire anyway. We just enforce:
+      - length 20..3800 after normalising whitespace (room for Fernet overhead)
+      - no control chars except TAB/LF
+      - no CSV-formula leading chars (they'd leak into any export)
+    """
+    text = (raw or "").strip()
+    if len(text) < 20:
+        raise HTTPException(400, "Bank details look too short — include account number, bank name, and SWIFT/BIC.")
+    if len(text) > 3800:
+        raise HTTPException(400, "Bank details are too long (max 3800 chars).")
+    for ch in text:
+        if ord(ch) < 0x20 and ch not in ("\t", "\n"):
+            raise HTTPException(400, "Bank details contain disallowed control characters.")
+    if text[0] in ("=", "+", "@"):
+        # Matches payouts._FORMULA_INJECTION_CHARS intent — reject at save-time
+        # too so decryption never produces a formula-leading blob.
+        raise HTTPException(400, "Bank details can't start with =, + or @.")
+    return text
+
+
 @app.get("/api/seller/payout-account", response_model=PayoutAccountOut)
 async def get_payout_account(
     current_user: User = Depends(require_role("seller", "admin")),
 ):
+    method = current_user.payout_method or "sepa"
+    if method == "manual_intl":
+        if not current_user.payout_details or not current_user.payout_account_holder:
+            return PayoutAccountOut(is_set=False, payout_method="manual_intl")
+        return PayoutAccountOut(
+            account_holder=current_user.payout_account_holder,
+            payout_method="manual_intl",
+            payout_country=current_user.payout_country,
+            payout_details_set=True,
+            is_set=True,
+        )
+    # SEPA path
     if not current_user.iban or not current_user.payout_account_holder:
-        return PayoutAccountOut(is_set=False)
+        return PayoutAccountOut(is_set=False, payout_method="sepa")
     try:
         iban = _decrypt_iban(current_user.iban)
     except Exception:
         logger.error("IBAN decrypt failed for user %d", current_user.id)
-        return PayoutAccountOut(is_set=False)
+        return PayoutAccountOut(is_set=False, payout_method="sepa")
     return PayoutAccountOut(
         iban_last4=iban[-4:] if len(iban) >= 4 else iban,
         account_holder=current_user.payout_account_holder,
+        payout_method="sepa",
+        payout_country=current_user.payout_country,
         is_set=True,
     )
 
@@ -1344,23 +1410,67 @@ async def set_payout_account(
     current_user: User = Depends(require_role("seller", "admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    iban = _normalize_iban(body.iban)
-    if not _IBAN_SHAPE_RE.match(iban):
-        raise HTTPException(400, "IBAN looks malformed — check the country prefix and length.")
-    if not _iban_mod97_ok(iban):
-        raise HTTPException(400, "IBAN checksum failed — please double-check the number.")
+    method = (body.payout_method or "sepa").strip().lower()
+    if method not in ("sepa", "manual_intl"):
+        raise HTTPException(400, "payout_method must be 'sepa' or 'manual_intl'.")
+
     holder = (body.account_holder or "").strip()
     if not _ACCOUNT_HOLDER_RE.match(holder):
         raise HTTPException(
             400,
             "Account holder name must be 2–120 characters, letters and standard punctuation only.",
         )
-    current_user.iban = _encrypt_iban(iban)
+
+    country = (body.payout_country or "").strip().upper() or None
+    if country is not None and not _COUNTRY_CODE_RE.match(country):
+        raise HTTPException(400, "payout_country must be a 2-letter ISO country code.")
+
+    if method == "sepa":
+        if not body.iban:
+            raise HTTPException(400, "IBAN is required for SEPA payouts.")
+        iban = _normalize_iban(body.iban)
+        if not _IBAN_SHAPE_RE.match(iban):
+            raise HTTPException(400, "IBAN looks malformed — check the country prefix and length.")
+        if not _iban_mod97_ok(iban):
+            raise HTTPException(400, "IBAN checksum failed — please double-check the number.")
+        # Guardrail: if a country is specified, it has to be in SEPA.
+        if country and country not in _SEPA_COUNTRIES:
+            raise HTTPException(400, f"{country} is not a SEPA country — switch payout_method to 'manual_intl'.")
+        if not country:
+            country = iban[:2]  # IBAN starts with the country code
+        current_user.iban = _encrypt_iban(iban)
+        current_user.payout_details = None  # clear the other mode's blob
+        current_user.payout_method = "sepa"
+        current_user.payout_country = country
+        current_user.payout_account_holder = holder
+        await session.commit()
+        return PayoutAccountOut(
+            iban_last4=iban[-4:],
+            account_holder=holder,
+            payout_method="sepa",
+            payout_country=country,
+            is_set=True,
+        )
+
+    # manual_intl
+    if not country:
+        raise HTTPException(400, "payout_country is required for manual international payouts.")
+    if country in _SEPA_COUNTRIES:
+        raise HTTPException(400, f"{country} is in SEPA — use payout_method='sepa' with an IBAN instead.")
+    if not body.payout_details:
+        raise HTTPException(400, "Bank wire details are required for manual international payouts.")
+    details = _validate_payout_details(body.payout_details)
+    current_user.payout_details = _encrypt_iban(details)  # same Fernet envelope
+    current_user.iban = None
+    current_user.payout_method = "manual_intl"
+    current_user.payout_country = country
     current_user.payout_account_holder = holder
     await session.commit()
     return PayoutAccountOut(
-        iban_last4=iban[-4:],
         account_holder=holder,
+        payout_method="manual_intl",
+        payout_country=country,
+        payout_details_set=True,
         is_set=True,
     )
 
@@ -1832,11 +1942,59 @@ async def _host_payout_out(p: HostPayout, session: AsyncSession) -> HostPayoutOu
         booking_count=booking_count,
         iban_last4=p.iban_last4,
         account_holder=p.account_holder,
+        payout_method=(host.payout_method if host else None) or "sepa",
+        payout_country=host.payout_country if host else None,
         status=p.status,
         sepa_reference=p.sepa_reference,
         created_at=p.created_at,
         paid_at=p.paid_at,
     )
+
+
+@app.get("/api/admin/payouts/{payout_id}/wire-details")
+async def admin_payout_wire_details(
+    payout_id: int,
+    _: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Reveal the decrypted wire instructions for a manual_intl payout batch.
+
+    Deliberately narrow: only returns details for one batch at a time, and only
+    for batches whose host is on payout_method='manual_intl'. The admin uses
+    this to populate the fields in their business bank's international-wire
+    form. Access is admin-only; every call is logged so there's an audit trail
+    of who looked at wire details and when.
+    """
+    p = await session.get(HostPayout, payout_id)
+    if not p:
+        raise HTTPException(404, "Payout batch not found")
+    host = await session.get(User, p.host_id)
+    if not host:
+        raise HTTPException(404, "Host not found")
+    if (host.payout_method or "sepa") != "manual_intl":
+        raise HTTPException(400, "This host is on SEPA — use the CSV download instead.")
+    if not host.payout_details:
+        raise HTTPException(404, "No wire details on file for this host.")
+    try:
+        details = _decrypt_iban(host.payout_details)
+    except Exception:
+        logger.error("payout_details decrypt failed for host %d (payout %d)", host.id, p.id)
+        raise HTTPException(500, "Could not decrypt wire details.")
+    logger.info(
+        "admin wire-details reveal: payout=%d host=%d country=%s net=%.2f",
+        p.id, host.id, host.payout_country, p.net_eur,
+    )
+    return {
+        "payout_id": p.id,
+        "host_id": host.id,
+        "host_name": host.full_name,
+        "account_holder": host.payout_account_holder,
+        "payout_country": host.payout_country,
+        "net_eur": p.net_eur,
+        "currency": "EUR",
+        "reference": f"ChargedEV payout #{p.id}",
+        "wire_details": details,
+    }
 
 
 # ── Host joining fee ─────────────────────────────────────────────────────────
@@ -1915,12 +2073,12 @@ async def create_checkout(
     if not listing or not listing.is_available:
         raise HTTPException(404, "Listing not found or unavailable")
 
-    # A9: block booking a charger whose host hasn't configured a payout IBAN.
-    # Without this guard, we'd collect the money and the host's share would
-    # sit in pending forever because the SEPA batch generator can't build a
-    # line without an IBAN.
+    # A9: block booking a charger whose host hasn't configured a payout
+    # destination. SEPA hosts need iban+holder; manual_intl hosts need
+    # payout_details+holder. Either way, without this the host's share would
+    # sit in pending forever.
     host = await session.get(User, listing.seller_id)
-    if not host or not (host.iban and host.payout_account_holder):
+    if not host or not _host_payout_ready(host):
         raise HTTPException(409, "This host hasn't finished payout setup yet. Please try another charger.")
 
     total, vat, fee, earnings = _calc_amounts(body.package_kwh, listing.price_per_kwh)

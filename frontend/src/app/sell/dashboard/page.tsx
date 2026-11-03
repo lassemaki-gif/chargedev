@@ -30,7 +30,13 @@ function SellerDashboardInner() {
   const [error, setError] = useState<string | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
   const [payoutAccount, setPayoutAccount] = useState<PayoutAccount | null>(null);
-  const [payoutForm, setPayoutForm] = useState({ iban: "", account_holder: "" });
+  const [payoutForm, setPayoutForm] = useState<{
+    payout_method: "sepa" | "manual_intl";
+    account_holder: string;
+    payout_country: string;
+    iban: string;
+    payout_details: string;
+  }>({ payout_method: "sepa", account_holder: "", payout_country: "FI", iban: "", payout_details: "" });
   const [payoutSaving, setPayoutSaving] = useState(false);
   const [payoutError, setPayoutError] = useState<string | null>(null);
   const [payoutEditing, setPayoutEditing] = useState(false);
@@ -132,12 +138,23 @@ function SellerDashboardInner() {
     setPayoutError(null);
     setPayoutSaving(true);
     try {
-      const updated = await api.setPayoutAccount({
-        iban: payoutForm.iban.trim().replace(/\s+/g, "").toUpperCase(),
-        account_holder: payoutForm.account_holder.trim(),
-      });
+      const country = payoutForm.payout_country.trim().toUpperCase();
+      const holder = payoutForm.account_holder.trim();
+      const updated = payoutForm.payout_method === "sepa"
+        ? await api.setPayoutAccount({
+            payout_method: "sepa",
+            account_holder: holder,
+            iban: payoutForm.iban.trim().replace(/\s+/g, "").toUpperCase(),
+            payout_country: country || undefined,
+          })
+        : await api.setPayoutAccount({
+            payout_method: "manual_intl",
+            account_holder: holder,
+            payout_country: country,
+            payout_details: payoutForm.payout_details.trim(),
+          });
       setPayoutAccount(updated);
-      setPayoutForm({ iban: "", account_holder: "" });
+      setPayoutForm({ payout_method: "sepa", account_holder: "", payout_country: "FI", iban: "", payout_details: "" });
       setPayoutEditing(false);
       // Refresh earnings so payout_account_set flips to true in the UI.
       try { setEarnings(await api.sellerEarnings()); } catch { /* ignore */ }
@@ -335,10 +352,15 @@ function SellerDashboardInner() {
               <div>
                 <span className="text-green-400 text-sm font-medium">Payout account on file ✓</span>
                 <p className="text-ash text-xs mt-0.5">
-                  {payoutAccount.account_holder} · IBAN ending {payoutAccount.iban_last4}
+                  {payoutAccount.account_holder} ·{" "}
+                  {payoutAccount.payout_method === "manual_intl"
+                    ? `International wire (${payoutAccount.payout_country ?? "—"})`
+                    : `IBAN ending ${payoutAccount.iban_last4 ?? "—"}`}
                 </p>
                 <p className="text-ash text-xs mt-1">
-                  Your earnings (80% of each booking, net of VAT) are paid out weekly via SEPA to this account.
+                  {payoutAccount.payout_method === "manual_intl"
+                    ? "Your earnings (80% of each booking, net of VAT) are held and wired to this account by ChargedEV. International wires may run on a monthly cycle rather than weekly."
+                    : "Your earnings (80% of each booking, net of VAT) are paid out weekly via SEPA to this account."}
                 </p>
               </div>
               <button
@@ -351,9 +373,33 @@ function SellerDashboardInner() {
           ) : (
             <>
               <p className="text-ash text-sm mb-4">
-                Add the bank account where you&apos;d like your weekly earnings paid out. SEPA transfers only, EUR.
+                Add the bank account where you&apos;d like your earnings paid out. SEPA (EUR, weekly) if your bank is in the eurozone; otherwise an international wire from ChargedEV.
               </p>
               <div className="space-y-3">
+                <div>
+                  <label className="block text-ash text-xs mb-1">Payout method</label>
+                  <select
+                    value={payoutForm.payout_method}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, payout_method: e.target.value as "sepa" | "manual_intl" })}
+                    className="input w-full"
+                  >
+                    <option value="sepa">SEPA (eurozone IBAN — weekly, free)</option>
+                    <option value="manual_intl">International wire (outside SEPA)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-ash text-xs mb-1">Country (ISO code)</label>
+                  <input
+                    type="text"
+                    value={payoutForm.payout_country}
+                    onChange={(e) => setPayoutForm({ ...payoutForm, payout_country: e.target.value.toUpperCase().slice(0, 2) })}
+                    placeholder={payoutForm.payout_method === "sepa" ? "FI" : "US"}
+                    className="input w-full font-mono uppercase"
+                    maxLength={2}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </div>
                 <div>
                   <label className="block text-ash text-xs mb-1">Account holder</label>
                   <input
@@ -365,31 +411,56 @@ function SellerDashboardInner() {
                     maxLength={120}
                   />
                 </div>
-                <div>
-                  <label className="block text-ash text-xs mb-1">IBAN</label>
-                  <input
-                    type="text"
-                    value={payoutForm.iban}
-                    onChange={(e) => setPayoutForm({ ...payoutForm, iban: e.target.value })}
-                    placeholder="FI00 0000 0000 0000 00"
-                    className="input w-full font-mono tracking-wider"
-                    maxLength={42}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </div>
+                {payoutForm.payout_method === "sepa" ? (
+                  <div>
+                    <label className="block text-ash text-xs mb-1">IBAN</label>
+                    <input
+                      type="text"
+                      value={payoutForm.iban}
+                      onChange={(e) => setPayoutForm({ ...payoutForm, iban: e.target.value })}
+                      placeholder="FI00 0000 0000 0000 00"
+                      className="input w-full font-mono tracking-wider"
+                      maxLength={42}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-ash text-xs mb-1">Bank wire details</label>
+                    <textarea
+                      value={payoutForm.payout_details}
+                      onChange={(e) => setPayoutForm({ ...payoutForm, payout_details: e.target.value })}
+                      placeholder={"Bank name:\nBank address:\nSWIFT/BIC:\nAccount number:\nRouting / transit / sort code:\nAny intermediary bank details"}
+                      className="input w-full font-mono text-xs"
+                      rows={8}
+                      maxLength={3800}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <p className="text-ash text-xs mt-1">
+                      We&apos;ll use these to wire your earnings manually from our bank. Include enough detail for an international wire.
+                    </p>
+                  </div>
+                )}
                 {payoutError && <p className="text-red-400 text-xs">{payoutError}</p>}
                 <div className="flex gap-2">
                   <button
                     onClick={savePayoutAccount}
-                    disabled={payoutSaving || !payoutForm.iban || !payoutForm.account_holder}
+                    disabled={
+                      payoutSaving ||
+                      !payoutForm.account_holder ||
+                      (payoutForm.payout_method === "sepa"
+                        ? !payoutForm.iban
+                        : !payoutForm.payout_country || !payoutForm.payout_details)
+                    }
                     className="btn-volt text-sm px-6 disabled:opacity-40"
                   >
                     {payoutSaving ? "Saving…" : "Save payout account"}
                   </button>
                   {payoutEditing && (
                     <button
-                      onClick={() => { setPayoutEditing(false); setPayoutError(null); setPayoutForm({ iban: "", account_holder: "" }); }}
+                      onClick={() => { setPayoutEditing(false); setPayoutError(null); setPayoutForm({ payout_method: "sepa", account_holder: "", payout_country: "FI", iban: "", payout_details: "" }); }}
                       className="btn-outline text-sm px-4"
                     >
                       Cancel

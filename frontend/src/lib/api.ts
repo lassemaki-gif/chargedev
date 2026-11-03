@@ -69,8 +69,10 @@ export const api = {
   stripeOnboard: () => req<{ url: string }>("POST", "/api/seller/stripe/onboard"),
   stripeStatus: () => req<{ onboarded: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("GET", "/api/seller/stripe/status"),
   payoutAccount: () => req<PayoutAccount>("GET", "/api/seller/payout-account"),
-  setPayoutAccount: (body: { iban: string; account_holder: string }) =>
+  setPayoutAccount: (body: SetPayoutAccountIn) =>
     req<PayoutAccount>("PUT", "/api/seller/payout-account", body),
+  adminPayoutWireDetails: (payoutId: number) =>
+    req<PayoutWireDetails>("GET", `/api/admin/payouts/${payoutId}/wire-details`),
   payJoiningFee: () => req<{ checkout_url: string; payment_id: string } | { status: string }>("POST", "/api/seller/joining-fee"),
   verifyJoiningFee: (paymentId: string) => req<{ paid: boolean }>("GET", `/api/seller/joining-fee/verify?payment_id=${paymentId}`),
   createListing: (body: Partial<Listing>) => req<Listing>("POST", "/api/seller/listings", body),
@@ -244,7 +246,36 @@ export interface SellerEarnings {
 export interface PayoutAccount {
   iban_last4: string | null;
   account_holder: string | null;
+  payout_method: "sepa" | "manual_intl" | null;
+  payout_country: string | null;
+  payout_details_set: boolean;
   is_set: boolean;
+}
+
+export type SetPayoutAccountIn =
+  | {
+      payout_method: "sepa";
+      account_holder: string;
+      iban: string;
+      payout_country?: string | null;
+    }
+  | {
+      payout_method: "manual_intl";
+      account_holder: string;
+      payout_country: string;
+      payout_details: string;
+    };
+
+export interface PayoutWireDetails {
+  payout_id: number;
+  host_id: number;
+  host_name: string;
+  account_holder: string | null;
+  payout_country: string | null;
+  net_eur: number;
+  currency: string;
+  reference: string;
+  wire_details: string;
 }
 
 export interface PendingPayoutHost {
@@ -253,6 +284,8 @@ export interface PendingPayoutHost {
   host_email: string;
   iban_set: boolean;
   account_holder: string | null;
+  payout_method: "sepa" | "manual_intl" | null;
+  payout_country: string | null;
   booking_count: number;
   net_eur: number;
   earliest: string;
@@ -293,6 +326,8 @@ export interface HostPayoutOut {
   booking_count: number;
   iban_last4: string | null;
   account_holder: string | null;
+  payout_method: "sepa" | "manual_intl" | null;
+  payout_country: string | null;
   status: "pending" | "paid" | "cancelled";
   sepa_reference: string | null;
   created_at: string;

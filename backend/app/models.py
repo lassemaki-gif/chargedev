@@ -46,6 +46,16 @@ class User(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(40))
     iban: Mapped[Optional[str]] = mapped_column(String(255))  # host payout IBAN (SumUp era), Fernet-encrypted at rest
     payout_account_holder: Mapped[Optional[str]] = mapped_column(String(120))
+    # ISO-3166 alpha-2 of the host's payout country. Drives payout_method:
+    # SEPA countries use the IBAN field; everywhere else we hold the host's
+    # share and wire it manually from the admin dashboard once per period.
+    payout_country: Mapped[Optional[str]] = mapped_column(String(2))
+    # 'sepa' (default, uses iban) or 'manual_intl' (uses payout_details below).
+    # Explicit column avoids inferring intent from IBAN presence alone.
+    payout_method: Mapped[str] = mapped_column(String(16), default="sepa", nullable=False, server_default="sepa")
+    # Free-text bank wire instructions (account #, routing/transit, SWIFT, bank
+    # name/address) for non-SEPA hosts. Fernet-encrypted at rest, same key as IBAN.
+    payout_details: Mapped[Optional[str]] = mapped_column(String(4096))
     joining_fee_paid: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     # SumUp transaction id of the joining-fee charge, captured on confirmation
     # so we can refund it automatically when the host completes their first booking.
