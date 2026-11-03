@@ -244,7 +244,7 @@ export default function Landing() {
       </section>
 
       {/* Market hub */}
-      <section className="border-t border-border px-6 lg:px-16 py-16">
+      <section id="markets" className="border-t border-border px-6 lg:px-16 py-16 scroll-mt-16">
         <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Europe · Americas · Oceania</p>
         <h2 className="text-2xl font-bold text-white mb-8">Select your country</h2>
         <MarketGrid />

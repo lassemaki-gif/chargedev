@@ -59,6 +59,12 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           <Link href="/charge" className="hidden sm:block text-ash hover:text-white text-sm font-medium transition-colors px-2">
             {t.findCharger}
           </Link>
+          <Link
+            href="/#markets"
+            className="text-ash hover:text-white text-sm font-medium transition-colors px-2 whitespace-nowrap"
+          >
+            All markets
+          </Link>
           <Link href="/sell" className="btn-volt text-sm py-1.5 px-3 sm:py-2 sm:px-4">
             <span className="hidden sm:inline">{t.becomeHost}</span>
             <span className="sm:hidden">{t.hostShort}</span>
