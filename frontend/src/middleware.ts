@@ -30,6 +30,30 @@ const MARKET_IDS = new Set<string>([
 const BOT_UA_RE = /bot|crawler|spider|slurp|facebookexternalhit|slackbot|whatsapp|telegram/i;
 const GEO_REDIRECT_COOKIE = 'cedev_geo';
 
+// Fallback mapping for an Accept-Language tag that has no region subtag
+// (e.g. plain "fi" rather than "fi-FI"). "en" is intentionally omitted —
+// too ambiguous between US/CA/GB/IE/AU/NZ to guess.
+const LANG_TO_MARKET: Record<string, string> = {
+  fi: 'fi', sv: 'se', nb: 'no', no: 'no', da: 'dk', is: 'is',
+  de: 'de', fr: 'fr', nl: 'nl', es: 'es', pt: 'pt', it: 'it',
+  pl: 'pl', cs: 'cz', ro: 'ro', el: 'gr', hu: 'hu',
+  lv: 'lv', lt: 'lt', et: 'ee', sk: 'sk', sl: 'si', bg: 'bg', hr: 'hr',
+  ja: 'jp', ko: 'kr', th: 'th', id: 'id', ms: 'my',
+};
+
+function pickMarketFromAcceptLanguage(al: string | null): string | null {
+  if (!al) return null;
+  // Parse "fi-FI,fi;q=0.9,en;q=0.8" → ["fi-FI", "fi", "en"], in order.
+  const tags = al.split(',').map((x) => x.trim().split(';')[0]).filter(Boolean);
+  for (const tag of tags) {
+    const [lang, region] = tag.toLowerCase().split('-');
+    if (region && MARKET_IDS.has(region)) return region;
+    const fallback = LANG_TO_MARKET[lang];
+    if (fallback && MARKET_IDS.has(fallback)) return fallback;
+  }
+  return null;
+}
+
 export function middleware(req: NextRequest) {
   const { pathname, searchParams } = req.nextUrl;
 
@@ -54,10 +78,17 @@ export function middleware(req: NextRequest) {
     }
 
     if (!alreadyMarked && !isBot) {
-      const country = (req.headers.get('x-vercel-ip-country') || '').toLowerCase();
-      if (country && MARKET_IDS.has(country)) {
+      // Prefer Accept-Language over IP country. Carrier IPs in the Nordics
+      // (notably Telia Finland) get geo-IP'd as Sweden even for Helsinki
+      // subscribers, so trusting the browser's declared locale first gives
+      // a more accurate pick for the actual person.
+      const alPick = pickMarketFromAcceptLanguage(req.headers.get('accept-language'));
+      const ipCountry = (req.headers.get('x-vercel-ip-country') || '').toLowerCase();
+      const ipPick = ipCountry && MARKET_IDS.has(ipCountry) ? ipCountry : null;
+      const target = alPick || ipPick;
+      if (target) {
         const url = req.nextUrl.clone();
-        url.pathname = `/${country}`;
+        url.pathname = `/${target}`;
         url.search = '';
         const res = NextResponse.redirect(url, 307);
         res.cookies.set(GEO_REDIRECT_COOKIE, '1', {
