@@ -60,7 +60,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
             {t.findCharger}
           </Link>
           <Link
-            href="/#markets"
+            href="/?all=1#markets"
             className="text-ash hover:text-white text-sm font-medium transition-colors px-2 whitespace-nowrap"
           >
             All markets
