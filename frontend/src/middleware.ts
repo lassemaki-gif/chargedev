@@ -28,7 +28,6 @@ const MARKET_IDS = new Set<string>([
 // Rough bot sniff — we skip geo-redirect so crawlers index the canonical
 // root and the per-country canonical URLs independently.
 const BOT_UA_RE = /bot|crawler|spider|slurp|facebookexternalhit|slackbot|whatsapp|telegram/i;
-const GEO_REDIRECT_COOKIE = 'cedev_geo';
 
 // Fallback mapping for an Accept-Language tag that has no region subtag
 // (e.g. plain "fi" rather than "fi-FI"). "en" is intentionally omitted —
@@ -58,26 +57,15 @@ export function middleware(req: NextRequest) {
   const { pathname, searchParams } = req.nextUrl;
 
   // ── Geo-redirect on bare `/` ──────────────────────────────────────────────
-  // First-time visitors land on their country page (e.g. Finland → /fi).
-  // The cedev_geo cookie makes it a once-per-browser action so "All markets"
-  // (and any later visit to /) stays on the hub; `?all=1` also opts out and
-  // sets the cookie on the spot.
-  if (pathname === '/') {
-    const optOut = searchParams.has('all');
-    const alreadyMarked = req.cookies.get(GEO_REDIRECT_COOKIE)?.value === '1';
+  // Every visit to the root is routed to the visitor's country page so bookmarks
+  // of "/" always land on the localised page. `?all=1` is a per-request opt-out
+  // (used by the "All markets" nav link) and is NOT persisted — if the user
+  // visits "/" again without the query string, they get routed again.
+  //
+  // This mirrors the pattern that works in the sister project (solarscope).
+  if (pathname === '/' && !searchParams.has('all')) {
     const ua = req.headers.get('user-agent') || '';
-    const isBot = BOT_UA_RE.test(ua);
-
-    if (optOut) {
-      // User explicitly chose the hub; remember it and pass through.
-      const res = NextResponse.next();
-      res.cookies.set(GEO_REDIRECT_COOKIE, '1', {
-        path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax',
-      });
-      return res;
-    }
-
-    if (!alreadyMarked && !isBot) {
+    if (!BOT_UA_RE.test(ua)) {
       // Prefer Accept-Language over IP country. Carrier IPs in the Nordics
       // (notably Telia Finland) get geo-IP'd as Sweden even for Helsinki
       // subscribers, so trusting the browser's declared locale first gives
@@ -90,11 +78,7 @@ export function middleware(req: NextRequest) {
         const url = req.nextUrl.clone();
         url.pathname = `/${target}`;
         url.search = '';
-        const res = NextResponse.redirect(url, 307);
-        res.cookies.set(GEO_REDIRECT_COOKIE, '1', {
-          path: '/', maxAge: 60 * 60 * 24 * 365, sameSite: 'lax',
-        });
-        return res;
+        return NextResponse.redirect(url, 307);
       }
     }
   }
