@@ -926,6 +926,54 @@ const COVERAGE_OVERRIDE: Record<string, { title: string; body: string }> = {
     title: "Pilot in Oceania",
     body: "Live pilot in Australia. Hosts receive earnings via international bank wire.",
   },
+  nz: {
+    title: "Pilot in Oceania",
+    body: "Live pilot in New Zealand. Hosts receive earnings via international bank wire.",
+  },
+  ar: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Argentina. Hosts receive earnings via international bank wire.",
+  },
+  pr: {
+    title: "Pilot in Latin America",
+    body: "Live pilot in Puerto Rico. Hosts receive earnings via international bank wire.",
+  },
+  jp: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Japan. Hosts receive earnings via international bank wire.",
+  },
+  kr: {
+    title: "Pilot in Asia",
+    body: "Live pilot in South Korea. Hosts receive earnings via international bank wire.",
+  },
+  hk: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Hong Kong. Hosts receive earnings via international bank wire.",
+  },
+  tw: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Taiwan. Hosts receive earnings via international bank wire.",
+  },
+  sg: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Singapore. Hosts receive earnings via international bank wire.",
+  },
+  th: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Thailand. Hosts receive earnings via international bank wire.",
+  },
+  my: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Malaysia. Hosts receive earnings via international bank wire.",
+  },
+  ph: {
+    title: "Pilot in Asia",
+    body: "Live pilot in the Philippines. Hosts receive earnings via international bank wire.",
+  },
+  id: {
+    title: "Pilot in Asia",
+    body: "Live pilot in Indonesia. Hosts receive earnings via international bank wire.",
+  },
 };
 
 export const markets: Market[] = raw.map((m) => {

@@ -6,8 +6,9 @@ const REGIONS = [
   { label: "European Union", ids: ["at","be","bg","hr","cy","cz","dk","ee","fi","fr","de","gr","hu","ie","it","lv","lt","lu","mt","nl","pl","pt","ro","sk","si","es","se"] },
   { label: "Outside EU", ids: ["gb","ch","no","is"] },
   { label: "North America", ids: ["us","ca"] },
-  { label: "Latin America", ids: ["br","mx","cl","co","pe"] },
-  { label: "Oceania", ids: ["au"] },
+  { label: "Latin America", ids: ["br","mx","cl","co","pe","ar","pr"] },
+  { label: "Asia", ids: ["jp","kr","hk","tw","sg","th","my","ph","id"] },
+  { label: "Oceania", ids: ["au","nz"] },
 ];
 
 function MarketGrid() {
@@ -220,7 +221,7 @@ export default function Landing() {
           {[
             { icon: "📱", t: "Scan to start", b: "Every charger has a printed QR. Scan it to start your paid session — no scan, no energy flows." },
             { icon: "⚡", t: "Instant confirmation", b: "Your QR + backup PIN arrive the moment payment clears — no waiting, no back-and-forth." },
-            { icon: "🌍", t: "Europe, Americas and Oceania", b: "Live across Europe and piloting in North America, Latin America and Australia." },
+            { icon: "🌍", t: "Around the world", b: "Live across Europe and piloting in the Americas, Asia and Oceania." },
           ].map((f) => (
             <div key={f.t} className="flex flex-col gap-3">
               <span className="text-3xl">{f.icon}</span>
@@ -245,8 +246,12 @@ export default function Landing() {
 
       {/* Market hub */}
       <section id="markets" className="border-t border-border px-6 lg:px-16 py-16 scroll-mt-16">
-        <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Europe · Americas · Oceania</p>
+        <p className="text-volt text-xs font-semibold uppercase tracking-widest mb-3">Around the world</p>
         <h2 className="text-2xl font-bold text-white mb-8">Select your country</h2>
+        <p className="text-ash text-sm mb-8 max-w-xl">
+          Live across Europe · Pilot in the Americas, Asia and Oceania. All pilot
+          hosts are paid out via international bank wire until local rails launch.
+        </p>
         <MarketGrid />
       </section>
 
