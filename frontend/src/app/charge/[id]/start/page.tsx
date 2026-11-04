@@ -1,14 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, ChargeStartContext, HostSessionOut } from "@/lib/api";
+import { pickUIT2 } from "@/lib/ui";
 
 export default function ChargeStartPage() {
+  return (
+    <Suspense fallback={null}>
+      <ChargeStartInner />
+    </Suspense>
+  );
+}
+
+function ChargeStartInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const listingId = Number(params?.id);
 
   const [ctx, setCtx] = useState<ChargeStartContext | null>(null);
@@ -29,16 +47,16 @@ export default function ChargeStartPage() {
         setHostSession(hs);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to load charger";
+      const msg = err instanceof Error ? err.message : t.startFailedLoad;
       if (msg === "Not authenticated" || msg === "Invalid token") {
-        router.push(`/sell?return=/charge/${listingId}/start`);
+        router.push(`/sell${langSuffix}${langSuffix ? "&" : "?"}return=/charge/${listingId}/start`);
         return;
       }
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [listingId, router]);
+  }, [listingId, router, t.startFailedLoad, langSuffix]);
 
   useEffect(() => {
     load();
@@ -67,21 +85,21 @@ export default function ChargeStartPage() {
       setHostSession(hs);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start session");
+      setError(err instanceof Error ? err.message : t.startFailedStart);
     } finally {
       setStarting(false);
     }
   }
 
   async function stopHostSession() {
-    if (!confirm("Stop charging now?")) return;
+    if (!confirm(t.startConfirmStop)) return;
     setStopping(true);
     try {
       const hs = await api.hostSessionStop(listingId);
       setHostSession(hs);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to stop session");
+      setError(err instanceof Error ? err.message : t.startFailedStop);
     } finally {
       setStopping(false);
     }
@@ -95,7 +113,7 @@ export default function ChargeStartPage() {
       await api.buyerStartSession(ctx.booking_id);
       setBuyerStarted(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start charging");
+      setError(err instanceof Error ? err.message : t.startFailedStart);
     } finally {
       setStarting(false);
     }
@@ -106,7 +124,7 @@ export default function ChargeStartPage() {
       <div>
         <Nav />
         <div className="flex items-center justify-center min-h-[calc(100vh-64px)] text-ash text-sm">
-          Loading…
+          {t.startLoading}
         </div>
       </div>
     );
@@ -152,20 +170,18 @@ export default function ChargeStartPage() {
           <div className="card">
             {hostSession && hostSession.status === "active" ? (
               <>
-                <h2 className="font-semibold text-white mb-1">Your charger is active</h2>
-                <p className="text-ash text-xs mb-4">
-                  Session auto-stops after 8 hours or when you tap Stop.
-                </p>
+                <h2 className="font-semibold text-white mb-1">{t.startHostActiveTitle}</h2>
+                <p className="text-ash text-xs mb-4">{t.startHostActiveBody}</p>
                 <div className="bg-night rounded-xl p-4 mb-4 text-center">
                   <div className="text-ash text-xs uppercase tracking-widest mb-1">
-                    Delivered
+                    {t.startDelivered}
                   </div>
                   <div className="text-3xl font-bold text-volt">
                     {(hostSession.energy_consumed_wh / 1000).toFixed(2)}{" "}
                     <span className="text-base font-normal text-ash">kWh</span>
                   </div>
                   <div className="text-ash text-xs mt-2">
-                    Started {new Date(hostSession.started_at).toLocaleTimeString()} · expires{" "}
+                    {t.startStarted} {new Date(hostSession.started_at).toLocaleTimeString()} · {t.startExpires}{" "}
                     {new Date(hostSession.expires_at).toLocaleTimeString()}
                   </div>
                 </div>
@@ -174,22 +190,19 @@ export default function ChargeStartPage() {
                   disabled={stopping}
                   className="w-full btn-outline text-sm py-3 disabled:opacity-40"
                 >
-                  {stopping ? "Stopping…" : "Stop charging"}
+                  {stopping ? t.startStopping : t.startStopCharging}
                 </button>
               </>
             ) : (
               <>
-                <h2 className="font-semibold text-white mb-1">Charge your own car</h2>
-                <p className="text-ash text-xs mb-4">
-                  Starts the charger for a session up to 8 hours. Blocked when a buyer booking is
-                  active or starting within 60 minutes.
-                </p>
+                <h2 className="font-semibold text-white mb-1">{t.startHostIdleTitle}</h2>
+                <p className="text-ash text-xs mb-4">{t.startHostIdleBody}</p>
                 <button
                   onClick={startHostSession}
                   disabled={starting}
                   className="w-full btn-volt text-sm py-3 disabled:opacity-40"
                 >
-                  {starting ? "Starting…" : "Start my charging (8h)"}
+                  {starting ? t.startStarting : t.startStartMy}
                 </button>
               </>
             )}
@@ -202,29 +215,28 @@ export default function ChargeStartPage() {
             {buyerStarted ? (
               <div className="text-center">
                 <div className="text-5xl mb-3">✅</div>
-                <h2 className="text-lg font-semibold text-white mb-1">Charging started</h2>
+                <h2 className="text-lg font-semibold text-white mb-1">{t.startChargingStarted}</h2>
                 <p className="text-ash text-sm mb-6">
-                  Your session will stop automatically at {ctx.booking_package_kwh} kWh.
+                  {t.startStopsAt.replace("{kwh}", String(ctx.booking_package_kwh))}
                 </p>
-                <Link href="/bookings" className="btn-outline text-sm">
-                  View my bookings
+                <Link href={`/bookings${langSuffix}`} className="btn-outline text-sm">
+                  {t.startViewBookings}
                 </Link>
               </div>
             ) : (
               <>
-                <h2 className="font-semibold text-white mb-1">Ready to charge</h2>
+                <h2 className="font-semibold text-white mb-1">{t.startReadyTitle}</h2>
                 <p className="text-ash text-xs mb-4">
-                  Plug the cable in, then tap Start. Your session stops automatically at{" "}
-                  {ctx.booking_package_kwh} kWh.
+                  {t.startReadyBody.replace("{kwh}", String(ctx.booking_package_kwh))}
                 </p>
                 <div className="bg-night rounded-xl p-5 mb-4 text-center">
-                  <div className="text-ash text-xs uppercase tracking-widest mb-1">Session PIN</div>
+                  <div className="text-ash text-xs uppercase tracking-widest mb-1">{t.startSessionPin}</div>
                   <div className="font-mono text-3xl font-bold text-volt tracking-[0.2em]">
                     {ctx.booking_pin}
                   </div>
                   {ctx.booking_expires_at && (
                     <div className="text-ash text-xs mt-3">
-                      Expires {new Date(ctx.booking_expires_at).toLocaleTimeString()}
+                      {t.startExpiresAt} {new Date(ctx.booking_expires_at).toLocaleTimeString()}
                     </div>
                   )}
                 </div>
@@ -233,7 +245,7 @@ export default function ChargeStartPage() {
                   disabled={starting}
                   className="w-full btn-volt text-sm py-3 disabled:opacity-40"
                 >
-                  {starting ? "Starting…" : "Start charging"}
+                  {starting ? t.startStarting : t.startStartCharging}
                 </button>
               </>
             )}
@@ -244,12 +256,10 @@ export default function ChargeStartPage() {
         {ctx.role === "none" && (
           <div className="card text-center">
             <div className="text-3xl mb-3">🔌</div>
-            <h2 className="font-semibold text-white mb-2">Book this charger</h2>
-            <p className="text-ash text-xs mb-5">
-              You don&rsquo;t have an active booking for this charger yet.
-            </p>
-            <Link href={`/charge/${listingId}`} className="btn-volt text-sm">
-              View booking options
+            <h2 className="font-semibold text-white mb-2">{t.startNoBookingTitle}</h2>
+            <p className="text-ash text-xs mb-5">{t.startNoBookingBody}</p>
+            <Link href={`/charge/${listingId}${langSuffix}`} className="btn-volt text-sm">
+              {t.startViewBookingOptions}
             </Link>
           </div>
         )}

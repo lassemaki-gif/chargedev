@@ -129,6 +129,84 @@ export interface UIT2 {
   verifyFailedTitle: string;
   verifyFailedBody: string;
   verifySignInNow: string;
+
+  // Listing detail /charge/[id] (Phase 2b)
+  detailBack: string;
+  detailHostedBy: string;
+  detailAutoStart: string;
+  detailOcppSmart: string;
+  detailType: string;
+  detailMaxPower: string;
+  detailPrice: string;
+  detailPriceIncVat: string; // "/kWh (incl. VAT)"
+  detailLocation: string;
+  detailAerialView: string;
+  detailStreetView: string;
+  detailAboutCharger: string;
+  detailAccessInstructions: string;
+  detailAvailability: string;
+  detailReviews: string;
+  detailNoReviews: string;
+  detailLeaveReview: string;
+  detailShareExperience: string;
+  detailSubmitReview: string;
+  detailSubmittingReview: string;
+  detailOnlyUsedListings: string;
+  detailCouldNotSubmitReview: string;
+  detailChoosePackage: string;
+  detailNotesForHost: string;
+  detailNotesPlaceholder: string;
+  detailTotal: string;
+  detailNotAvailable: string;
+  detailProcessing: string;
+  detailSelectPackage: string;
+  detailBookFor: string; // "Book {kwh} kWh for"
+  detailAcknowledgment: string; // sentence with "{terms}" and "{privacy}" placeholders
+  detailTermsLink: string;
+  detailPrivacyLink: string;
+  detailSecuredBy: string;
+  detailAutoAfterPayment: string;
+  detailPinAfterPayment: string;
+  detailSignInToBook: string;
+  detailCreateToBook: string;
+  detailAuthNeed: string;
+  detailFullName: string;
+  detailYourName: string;
+  detailPassword: string;
+  detailPleaseWait: string;
+  detailSignInAndBook: string;
+  detailCreateAndBook: string;
+  detailAuthFailed: string;
+  detailBookingFailed: string;
+
+  // Start charging /charge/[id]/start (Phase 2b)
+  startLoading: string;
+  startHostActiveTitle: string;
+  startHostActiveBody: string;
+  startDelivered: string;
+  startStarted: string;
+  startExpires: string;
+  startStopCharging: string;
+  startStopping: string;
+  startConfirmStop: string;
+  startHostIdleTitle: string;
+  startHostIdleBody: string;
+  startStarting: string;
+  startStartMy: string; // "Start my charging (8h)"
+  startChargingStarted: string;
+  startStopsAt: string; // "Your session will stop automatically at {kwh} kWh."
+  startViewBookings: string;
+  startReadyTitle: string;
+  startReadyBody: string; // "Plug the cable in, then tap Start. Your session stops automatically at {kwh} kWh."
+  startSessionPin: string;
+  startExpiresAt: string;
+  startStartCharging: string;
+  startNoBookingTitle: string;
+  startNoBookingBody: string;
+  startViewBookingOptions: string;
+  startFailedLoad: string;
+  startFailedStart: string;
+  startFailedStop: string;
 }
 
 export const UI_LANG: Record<string, UIT> = {
@@ -1598,6 +1676,80 @@ const UI2_EN: UIT2 = {
   verifyFailedTitle: "Verification failed",
   verifyFailedBody: "The link may be invalid or expired.",
   verifySignInNow: "Continue to sign in",
+  detailBack: "Back",
+  detailHostedBy: "Hosted by",
+  detailAutoStart: "Auto-start",
+  detailOcppSmart: "OCPP Smart",
+  detailType: "Type",
+  detailMaxPower: "Max power",
+  detailPrice: "Price",
+  detailPriceIncVat: "/kWh (incl. VAT)",
+  detailLocation: "Location",
+  detailAerialView: "Aerial view",
+  detailStreetView: "Street view",
+  detailAboutCharger: "About this charger",
+  detailAccessInstructions: "Access instructions",
+  detailAvailability: "Availability",
+  detailReviews: "Reviews",
+  detailNoReviews: "No reviews yet.",
+  detailLeaveReview: "Leave a review",
+  detailShareExperience: "Share your experience…",
+  detailSubmitReview: "Submit review",
+  detailSubmittingReview: "Submitting…",
+  detailOnlyUsedListings: "You can only review listings you've used.",
+  detailCouldNotSubmitReview: "Could not submit review",
+  detailChoosePackage: "Choose a package",
+  detailNotesForHost: "Notes for host (optional)",
+  detailNotesPlaceholder: "e.g. I'll arrive around 14:00",
+  detailTotal: "Total",
+  detailNotAvailable: "Not available",
+  detailProcessing: "Processing…",
+  detailSelectPackage: "Select a package",
+  detailBookFor: "Book {kwh} kWh for",
+  detailAcknowledgment: "By paying, you acknowledge that you have read and understood the ChargedEV.io Finland {terms} and {privacy}.",
+  detailTermsLink: "Terms and Conditions",
+  detailPrivacyLink: "Privacy Policy",
+  detailSecuredBy: "Secured by SumUp · Visa · Mastercard · Amex · Apple Pay · Google Pay",
+  detailAutoAfterPayment: "Charger starts automatically after payment",
+  detailPinAfterPayment: "PIN delivered instantly after payment",
+  detailSignInToBook: "Sign in to book",
+  detailCreateToBook: "Create account to book",
+  detailAuthNeed: "You need a ChargedEV account to complete your booking.",
+  detailFullName: "Full name",
+  detailYourName: "Your name",
+  detailPassword: "Password",
+  detailPleaseWait: "Please wait…",
+  detailSignInAndBook: "Sign in & book",
+  detailCreateAndBook: "Create account & book",
+  detailAuthFailed: "Authentication failed",
+  detailBookingFailed: "Booking failed",
+  startLoading: "Loading…",
+  startHostActiveTitle: "Your charger is active",
+  startHostActiveBody: "Session auto-stops after 8 hours or when you tap Stop.",
+  startDelivered: "Delivered",
+  startStarted: "Started",
+  startExpires: "expires",
+  startStopCharging: "Stop charging",
+  startStopping: "Stopping…",
+  startConfirmStop: "Stop charging now?",
+  startHostIdleTitle: "Charge your own car",
+  startHostIdleBody: "Starts the charger for a session up to 8 hours. Blocked when a buyer booking is active or starting within 60 minutes.",
+  startStarting: "Starting…",
+  startStartMy: "Start my charging (8h)",
+  startChargingStarted: "Charging started",
+  startStopsAt: "Your session will stop automatically at {kwh} kWh.",
+  startViewBookings: "View my bookings",
+  startReadyTitle: "Ready to charge",
+  startReadyBody: "Plug the cable in, then tap Start. Your session stops automatically at {kwh} kWh.",
+  startSessionPin: "Session PIN",
+  startExpiresAt: "Expires",
+  startStartCharging: "Start charging",
+  startNoBookingTitle: "Book this charger",
+  startNoBookingBody: "You don't have an active booking for this charger yet.",
+  startViewBookingOptions: "View booking options",
+  startFailedLoad: "Failed to load charger",
+  startFailedStart: "Failed to start session",
+  startFailedStop: "Failed to stop session",
 };
 
 // Each non-English entry supplies overrides; missing keys fall back to English.
@@ -1655,6 +1807,80 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     verifyFailedTitle: "Vahvistus epäonnistui",
     verifyFailedBody: "Linkki voi olla virheellinen tai vanhentunut.",
     verifySignInNow: "Jatka kirjautumiseen",
+    detailBack: "Takaisin",
+    detailHostedBy: "Isäntänä",
+    detailAutoStart: "Automaattistartti",
+    detailOcppSmart: "OCPP Smart",
+    detailType: "Tyyppi",
+    detailMaxPower: "Maksimiteho",
+    detailPrice: "Hinta",
+    detailPriceIncVat: "/kWh (sis. ALV)",
+    detailLocation: "Sijainti",
+    detailAerialView: "Ilmakuva",
+    detailStreetView: "Katunäkymä",
+    detailAboutCharger: "Tietoa latauspisteestä",
+    detailAccessInstructions: "Käyttöohjeet",
+    detailAvailability: "Saatavuus",
+    detailReviews: "Arvostelut",
+    detailNoReviews: "Ei vielä arvosteluja.",
+    detailLeaveReview: "Jätä arvostelu",
+    detailShareExperience: "Jaa kokemuksesi…",
+    detailSubmitReview: "Lähetä arvostelu",
+    detailSubmittingReview: "Lähetetään…",
+    detailOnlyUsedListings: "Voit arvostella vain käyttämiäsi latauspisteitä.",
+    detailCouldNotSubmitReview: "Arvostelun lähetys epäonnistui",
+    detailChoosePackage: "Valitse paketti",
+    detailNotesForHost: "Viesti isännälle (valinnainen)",
+    detailNotesPlaceholder: "esim. saavun noin klo 14",
+    detailTotal: "Yhteensä",
+    detailNotAvailable: "Ei saatavilla",
+    detailProcessing: "Käsitellään…",
+    detailSelectPackage: "Valitse paketti",
+    detailBookFor: "Varaa {kwh} kWh hintaan",
+    detailAcknowledgment: "Maksamalla hyväksyt lukemasi ChargedEV.io Finland {terms} ja {privacy}.",
+    detailTermsLink: "käyttöehdot",
+    detailPrivacyLink: "tietosuojakäytäntö",
+    detailSecuredBy: "Suojaus: SumUp · Visa · Mastercard · Amex · Apple Pay · Google Pay",
+    detailAutoAfterPayment: "Latauspiste käynnistyy automaattisesti maksun jälkeen",
+    detailPinAfterPayment: "PIN-koodi toimitetaan heti maksun jälkeen",
+    detailSignInToBook: "Kirjaudu varataksesi",
+    detailCreateToBook: "Luo tili varataksesi",
+    detailAuthNeed: "Tarvitset ChargedEV-tilin varauksen viimeistelyyn.",
+    detailFullName: "Koko nimi",
+    detailYourName: "Nimesi",
+    detailPassword: "Salasana",
+    detailPleaseWait: "Odota hetki…",
+    detailSignInAndBook: "Kirjaudu ja varaa",
+    detailCreateAndBook: "Luo tili ja varaa",
+    detailAuthFailed: "Kirjautuminen epäonnistui",
+    detailBookingFailed: "Varaus epäonnistui",
+    startLoading: "Ladataan…",
+    startHostActiveTitle: "Latauspisteesi on aktiivinen",
+    startHostActiveBody: "Lataus pysähtyy automaattisesti 8 tunnin jälkeen tai kun painat Lopeta.",
+    startDelivered: "Toimitettu",
+    startStarted: "Aloitettu",
+    startExpires: "päättyy",
+    startStopCharging: "Lopeta lataus",
+    startStopping: "Lopetetaan…",
+    startConfirmStop: "Lopeta lataus nyt?",
+    startHostIdleTitle: "Lataa oma autosi",
+    startHostIdleBody: "Käynnistää latauspisteen jopa 8 tunnin latausta varten. Estetty, jos ostajan varaus on aktiivinen tai alkamassa 60 min sisällä.",
+    startStarting: "Aloitetaan…",
+    startStartMy: "Aloita oma lataus (8 h)",
+    startChargingStarted: "Lataus aloitettu",
+    startStopsAt: "Istuntosi päättyy automaattisesti kohdassa {kwh} kWh.",
+    startViewBookings: "Näytä varaukseni",
+    startReadyTitle: "Valmiina lataamaan",
+    startReadyBody: "Kytke kaapeli ja paina Aloita. Lataus pysähtyy automaattisesti kohdassa {kwh} kWh.",
+    startSessionPin: "Lataus-PIN",
+    startExpiresAt: "Päättyy",
+    startStartCharging: "Aloita lataus",
+    startNoBookingTitle: "Varaa tämä latauspiste",
+    startNoBookingBody: "Sinulla ei ole aktiivista varausta tälle latauspisteelle.",
+    startViewBookingOptions: "Näytä varausvaihtoehdot",
+    startFailedLoad: "Latauspisteen lataus epäonnistui",
+    startFailedStart: "Istunnon aloitus epäonnistui",
+    startFailedStop: "Istunnon lopetus epäonnistui",
   },
   sv: {
     chargeListView: "Lista", chargeMapView: "Karta",
@@ -1708,6 +1934,80 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     verifyFailedTitle: "Verifiering misslyckades",
     verifyFailedBody: "Länken kan vara ogiltig eller ha gått ut.",
     verifySignInNow: "Fortsätt till inloggning",
+    detailBack: "Tillbaka",
+    detailHostedBy: "Värd:",
+    detailAutoStart: "Autostart",
+    detailOcppSmart: "OCPP Smart",
+    detailType: "Typ",
+    detailMaxPower: "Maxeffekt",
+    detailPrice: "Pris",
+    detailPriceIncVat: "/kWh (ink. moms)",
+    detailLocation: "Plats",
+    detailAerialView: "Flygvy",
+    detailStreetView: "Gatuvy",
+    detailAboutCharger: "Om laddaren",
+    detailAccessInstructions: "Åtkomstinstruktioner",
+    detailAvailability: "Tillgänglighet",
+    detailReviews: "Omdömen",
+    detailNoReviews: "Inga omdömen ännu.",
+    detailLeaveReview: "Lämna ett omdöme",
+    detailShareExperience: "Dela din upplevelse…",
+    detailSubmitReview: "Skicka omdöme",
+    detailSubmittingReview: "Skickar…",
+    detailOnlyUsedListings: "Du kan bara recensera laddare du har använt.",
+    detailCouldNotSubmitReview: "Omdömet kunde inte skickas",
+    detailChoosePackage: "Välj paket",
+    detailNotesForHost: "Meddelande till värd (valfritt)",
+    detailNotesPlaceholder: "t.ex. kommer runt kl 14",
+    detailTotal: "Totalt",
+    detailNotAvailable: "Ej tillgänglig",
+    detailProcessing: "Bearbetar…",
+    detailSelectPackage: "Välj ett paket",
+    detailBookFor: "Boka {kwh} kWh för",
+    detailAcknowledgment: "Genom att betala bekräftar du att du läst ChargedEV.io Finland {terms} och {privacy}.",
+    detailTermsLink: "användarvillkor",
+    detailPrivacyLink: "integritetspolicy",
+    detailSecuredBy: "Säkrat av SumUp · Visa · Mastercard · Amex · Apple Pay · Google Pay",
+    detailAutoAfterPayment: "Laddaren startar automatiskt efter betalning",
+    detailPinAfterPayment: "PIN levereras direkt efter betalning",
+    detailSignInToBook: "Logga in för att boka",
+    detailCreateToBook: "Skapa konto för att boka",
+    detailAuthNeed: "Du behöver ett ChargedEV-konto för att slutföra bokningen.",
+    detailFullName: "Fullständigt namn",
+    detailYourName: "Ditt namn",
+    detailPassword: "Lösenord",
+    detailPleaseWait: "Vänta…",
+    detailSignInAndBook: "Logga in & boka",
+    detailCreateAndBook: "Skapa konto & boka",
+    detailAuthFailed: "Autentisering misslyckades",
+    detailBookingFailed: "Bokningen misslyckades",
+    startLoading: "Laddar…",
+    startHostActiveTitle: "Din laddare är aktiv",
+    startHostActiveBody: "Sessionen stoppas automatiskt efter 8 timmar eller när du trycker Stopp.",
+    startDelivered: "Levererat",
+    startStarted: "Startade",
+    startExpires: "upphör",
+    startStopCharging: "Stoppa laddning",
+    startStopping: "Stoppar…",
+    startConfirmStop: "Stoppa laddning nu?",
+    startHostIdleTitle: "Ladda din egen bil",
+    startHostIdleBody: "Startar laddaren för en session upp till 8 timmar. Blockeras om en köpare har aktiv bokning eller startar inom 60 minuter.",
+    startStarting: "Startar…",
+    startStartMy: "Starta min laddning (8h)",
+    startChargingStarted: "Laddning startad",
+    startStopsAt: "Din session stoppas automatiskt vid {kwh} kWh.",
+    startViewBookings: "Visa mina bokningar",
+    startReadyTitle: "Redo att ladda",
+    startReadyBody: "Koppla in kabeln och tryck Start. Sessionen stoppas automatiskt vid {kwh} kWh.",
+    startSessionPin: "Sessions-PIN",
+    startExpiresAt: "Upphör",
+    startStartCharging: "Starta laddning",
+    startNoBookingTitle: "Boka denna laddare",
+    startNoBookingBody: "Du har ingen aktiv bokning för denna laddare än.",
+    startViewBookingOptions: "Visa bokningsalternativ",
+    startFailedLoad: "Kunde inte ladda laddaren",
+    startFailedStart: "Kunde inte starta sessionen",
+    startFailedStop: "Kunde inte stoppa sessionen",
   },
   de: {
     chargeListView: "Liste", chargeMapView: "Karte",
@@ -1761,6 +2061,80 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     verifyFailedTitle: "Verifizierung fehlgeschlagen",
     verifyFailedBody: "Der Link ist möglicherweise ungültig oder abgelaufen.",
     verifySignInNow: "Weiter zur Anmeldung",
+    detailBack: "Zurück",
+    detailHostedBy: "Gastgeber:",
+    detailAutoStart: "Auto-Start",
+    detailOcppSmart: "OCPP Smart",
+    detailType: "Typ",
+    detailMaxPower: "Max. Leistung",
+    detailPrice: "Preis",
+    detailPriceIncVat: "/kWh (inkl. MwSt.)",
+    detailLocation: "Standort",
+    detailAerialView: "Luftaufnahme",
+    detailStreetView: "Straßenansicht",
+    detailAboutCharger: "Über diese Ladesäule",
+    detailAccessInstructions: "Zugangshinweise",
+    detailAvailability: "Verfügbarkeit",
+    detailReviews: "Bewertungen",
+    detailNoReviews: "Noch keine Bewertungen.",
+    detailLeaveReview: "Bewertung abgeben",
+    detailShareExperience: "Teile deine Erfahrung…",
+    detailSubmitReview: "Bewertung senden",
+    detailSubmittingReview: "Senden…",
+    detailOnlyUsedListings: "Du kannst nur Ladesäulen bewerten, die du genutzt hast.",
+    detailCouldNotSubmitReview: "Bewertung konnte nicht gesendet werden",
+    detailChoosePackage: "Paket wählen",
+    detailNotesForHost: "Nachricht an den Gastgeber (optional)",
+    detailNotesPlaceholder: "z. B. komme gegen 14:00 Uhr an",
+    detailTotal: "Gesamt",
+    detailNotAvailable: "Nicht verfügbar",
+    detailProcessing: "Verarbeite…",
+    detailSelectPackage: "Paket auswählen",
+    detailBookFor: "{kwh} kWh buchen für",
+    detailAcknowledgment: "Mit der Zahlung bestätigst du die ChargedEV.io Finland {terms} und {privacy} gelesen zu haben.",
+    detailTermsLink: "AGB",
+    detailPrivacyLink: "Datenschutzerklärung",
+    detailSecuredBy: "Gesichert durch SumUp · Visa · Mastercard · Amex · Apple Pay · Google Pay",
+    detailAutoAfterPayment: "Ladesäule startet automatisch nach der Zahlung",
+    detailPinAfterPayment: "PIN wird sofort nach der Zahlung geliefert",
+    detailSignInToBook: "Zum Buchen anmelden",
+    detailCreateToBook: "Konto erstellen zum Buchen",
+    detailAuthNeed: "Du brauchst ein ChargedEV-Konto, um die Buchung abzuschließen.",
+    detailFullName: "Vollständiger Name",
+    detailYourName: "Dein Name",
+    detailPassword: "Passwort",
+    detailPleaseWait: "Bitte warten…",
+    detailSignInAndBook: "Anmelden & buchen",
+    detailCreateAndBook: "Konto erstellen & buchen",
+    detailAuthFailed: "Anmeldung fehlgeschlagen",
+    detailBookingFailed: "Buchung fehlgeschlagen",
+    startLoading: "Lade…",
+    startHostActiveTitle: "Deine Ladesäule ist aktiv",
+    startHostActiveBody: "Sitzung endet nach 8 Stunden oder wenn du Stopp tippst.",
+    startDelivered: "Geliefert",
+    startStarted: "Gestartet",
+    startExpires: "läuft ab",
+    startStopCharging: "Laden stoppen",
+    startStopping: "Stoppe…",
+    startConfirmStop: "Laden jetzt stoppen?",
+    startHostIdleTitle: "Dein eigenes Auto laden",
+    startHostIdleBody: "Startet die Ladesäule für bis zu 8 Stunden. Blockiert bei aktiver Käuferbuchung oder solcher, die in 60 Minuten startet.",
+    startStarting: "Starte…",
+    startStartMy: "Meine Ladung starten (8h)",
+    startChargingStarted: "Ladung gestartet",
+    startStopsAt: "Deine Sitzung endet automatisch bei {kwh} kWh.",
+    startViewBookings: "Meine Buchungen anzeigen",
+    startReadyTitle: "Bereit zum Laden",
+    startReadyBody: "Kabel einstecken und Start drücken. Die Sitzung endet automatisch bei {kwh} kWh.",
+    startSessionPin: "Sitzungs-PIN",
+    startExpiresAt: "Läuft ab",
+    startStartCharging: "Laden starten",
+    startNoBookingTitle: "Diese Ladesäule buchen",
+    startNoBookingBody: "Du hast noch keine aktive Buchung für diese Ladesäule.",
+    startViewBookingOptions: "Buchungsoptionen anzeigen",
+    startFailedLoad: "Ladesäule konnte nicht geladen werden",
+    startFailedStart: "Sitzung konnte nicht gestartet werden",
+    startFailedStop: "Sitzung konnte nicht gestoppt werden",
   },
   fr: {
     chargeListView: "Liste", chargeMapView: "Carte",

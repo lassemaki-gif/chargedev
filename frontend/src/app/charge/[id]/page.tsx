@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { track } from "@vercel/analytics";
 import { Nav } from "@/components/Nav";
@@ -7,11 +7,29 @@ import { StarRating } from "@/components/StarRating";
 import { AvailabilityGrid, WeeklyAvailability } from "@/components/AvailabilityGrid";
 import { api, Listing, PACKAGES, Review_, saveRole } from "@/lib/api";
 import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { pickUIT2 } from "@/lib/ui";
 
 export default function ChargerDetail() {
+  return (
+    <Suspense fallback={null}>
+      <ChargerDetailInner />
+    </Suspense>
+  );
+}
+
+function ChargerDetailInner() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [listing, setListing] = useState<Listing | null>(null);
   const [selectedPkg, setSelectedPkg] = useState<number | null>(null);
   const [mode, setMode] = useState<"view" | "login" | "register">("view");
@@ -46,7 +64,7 @@ export default function ChargerDetail() {
       saveRole(res.role);
       setMode("view");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      setError(err instanceof Error ? err.message : t.detailAuthFailed);
     } finally {
       setLoading(false);
     }
@@ -75,14 +93,14 @@ export default function ChargerDetail() {
       if (msg.includes("401") || msg.includes("authenticated")) {
         setMode("login");
       } else {
-        setError(msg || "Booking failed");
+        setError(msg || t.detailBookingFailed);
       }
     } finally {
       setLoading(false);
     }
   }
 
-  if (!listing) return <div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>;
+  if (!listing) return <div className="min-h-screen flex items-center justify-center text-ash">…</div>;
 
 
   if (mode === "login" || mode === "register") return (
@@ -90,35 +108,35 @@ export default function ChargerDetail() {
       <Nav />
       <div className="flex items-center justify-center min-h-[calc(100vh-64px)] px-6">
         <div className="card max-w-md w-full">
-          <h2 className="text-xl font-bold text-white mb-1">{mode === "login" ? "Sign in to book" : "Create account to book"}</h2>
-          <p className="text-ash text-sm mb-5">You need a ChargedEV account to complete your booking.</p>
+          <h2 className="text-xl font-bold text-white mb-1">{mode === "login" ? t.detailSignInToBook : t.detailCreateToBook}</h2>
+          <p className="text-ash text-sm mb-5">{t.detailAuthNeed}</p>
           {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-4">{error}</div>}
           <form onSubmit={handleAuth} className="space-y-4">
             {mode === "register" && (
               <div>
-                <label className="label">Full name</label>
-                <input className="input" placeholder="Your name" value={authForm.full_name} onChange={(e) => setAuthForm((f) => ({ ...f, full_name: e.target.value }))} required />
+                <label className="label">{t.detailFullName}</label>
+                <input className="input" placeholder={t.detailYourName} value={authForm.full_name} onChange={(e) => setAuthForm((f) => ({ ...f, full_name: e.target.value }))} required />
               </div>
             )}
             <div>
-              <label className="label">Email</label>
+              <label className="label">{t.forgotEmail}</label>
               <input className="input" type="email" value={authForm.email} onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))} required />
             </div>
             <div>
-              <label className="label">Password</label>
+              <label className="label">{t.detailPassword}</label>
               <input className="input" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} required />
             </div>
             <button type="submit" disabled={loading} className="btn-volt w-full text-center">
-              {loading ? "Please wait…" : mode === "login" ? "Sign in & book" : "Create account & book"}
+              {loading ? t.detailPleaseWait : mode === "login" ? t.detailSignInAndBook : t.detailCreateAndBook}
             </button>
           </form>
           {mode === "login" && (
-            <a href="/forgot-password" className="mt-3 block text-ash text-sm hover:text-white text-center">
-              Forgot password?
+            <a href={`/forgot-password${langSuffix}`} className="mt-3 block text-ash text-sm hover:text-white text-center">
+              {t.resetTitle}
             </a>
           )}
           <button className="mt-3 text-ash text-sm hover:text-white w-full text-center" onClick={() => setMode(mode === "login" ? "register" : "login")}>
-            {mode === "login" ? "No account? Register" : "Already have one? Sign in"}
+            {mode === "login" ? t.detailCreateToBook : t.detailSignInToBook}
           </button>
         </div>
       </div>
@@ -129,7 +147,7 @@ export default function ChargerDetail() {
     <div>
       <Nav />
       <div className="px-4 sm:px-6 lg:px-16 py-6 sm:py-12 max-w-4xl">
-        <button onClick={() => router.back()} className="text-ash text-sm hover:text-white mb-4 sm:mb-6 flex items-center gap-2">← Back</button>
+        <button onClick={() => router.back()} className="text-ash text-sm hover:text-white mb-4 sm:mb-6 flex items-center gap-2">← {t.detailBack}</button>
 
         <div className="grid lg:grid-cols-[1fr_360px] gap-6 lg:gap-8">
           {/* Left: Info */}
@@ -137,24 +155,24 @@ export default function ChargerDetail() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2 leading-tight">{listing.title}</h1>
             <p className="text-ash text-sm mb-1 line-clamp-2">{listing.address}, {listing.city}, {listing.country}</p>
             <div className="flex flex-wrap items-center gap-2 mb-5 sm:mb-6">
-              <p className="text-ash text-sm">Hosted by {listing.seller_name}</p>
+              <p className="text-ash text-sm">{t.detailHostedBy} {listing.seller_name}</p>
               {listing.shelly_enabled && (
                 <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-volt/10 text-volt border border-volt/20">
-                  ⚡ Auto-start
+                  ⚡ {t.detailAutoStart}
                 </span>
               )}
               {listing.ocpp_enabled && (
                 <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-900/30 text-blue-400 border border-blue-700/40">
-                  ⚡ OCPP Smart
+                  ⚡ {t.detailOcppSmart}
                 </span>
               )}
             </div>
 
             <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
               {[
-                { label: "Type", value: listing.charger_type },
-                { label: "Max power", value: `${listing.max_power_kw} kW` },
-                { label: "Price", value: `€${listing.price_per_kwh.toFixed(2)}/kWh (incl. VAT)` },
+                { label: t.detailType, value: listing.charger_type },
+                { label: t.detailMaxPower, value: `${listing.max_power_kw} kW` },
+                { label: t.detailPrice, value: `€${listing.price_per_kwh.toFixed(2)}${t.detailPriceIncVat}` },
               ].map((i) => (
                 <div key={i.label} className="card text-center !p-3 sm:!p-4">
                   <div className="text-ash text-xs mb-1">{i.label}</div>
@@ -166,10 +184,10 @@ export default function ChargerDetail() {
             {/* Satellite + Street View */}
             {listing.lat && listing.lng && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
               <div className="mb-6">
-                <h2 className="font-semibold text-white mb-3">Location</h2>
+                <h2 className="font-semibold text-white mb-3">{t.detailLocation}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="overflow-hidden rounded-xl border border-border">
-                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">Aerial view</p>
+                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">{t.detailAerialView}</p>
                     <img
                       src={`https://maps.googleapis.com/maps/api/staticmap?center=${listing.lat},${listing.lng}&zoom=19&size=600x300&maptype=satellite&markers=color:0x22C55E%7C${listing.lat},${listing.lng}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`}
                       alt="Aerial view"
@@ -178,7 +196,7 @@ export default function ChargerDetail() {
                     />
                   </div>
                   <div className="overflow-hidden rounded-xl border border-border">
-                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">Street view</p>
+                    <p className="text-ash text-xs uppercase tracking-widest px-3 py-2 border-b border-border">{t.detailStreetView}</p>
                     <img
                       src={`https://maps.googleapis.com/maps/api/streetview?size=600x300&location=${listing.lat},${listing.lng}&fov=90&pitch=0&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`}
                       alt="Street view"
@@ -192,13 +210,13 @@ export default function ChargerDetail() {
 
             {listing.description && (
               <div className="mb-6">
-                <h2 className="font-semibold text-white mb-2">About this charger</h2>
+                <h2 className="font-semibold text-white mb-2">{t.detailAboutCharger}</h2>
                 <p className="text-ash text-sm leading-relaxed">{listing.description}</p>
               </div>
             )}
             {listing.instructions && (
               <div className="card bg-volt/5 border-volt/20 mb-6">
-                <h2 className="font-semibold text-white mb-2">Access instructions</h2>
+                <h2 className="font-semibold text-white mb-2">{t.detailAccessInstructions}</h2>
                 <p className="text-ash text-sm leading-relaxed">{listing.instructions}</p>
               </div>
             )}
@@ -209,7 +227,7 @@ export default function ChargerDetail() {
                 const av: WeeklyAvailability = JSON.parse(listing.availability_json);
                 return (
                   <div className="mb-6">
-                    <h2 className="font-semibold text-white mb-3">Availability</h2>
+                    <h2 className="font-semibold text-white mb-3">{t.detailAvailability}</h2>
                     <AvailabilityGrid value={av} onChange={() => {}} readonly />
                   </div>
                 );
@@ -219,7 +237,7 @@ export default function ChargerDetail() {
             {/* Reviews */}
             <div className="mb-6">
               <div className="flex items-center gap-3 mb-4">
-                <h2 className="font-semibold text-white">Reviews</h2>
+                <h2 className="font-semibold text-white">{t.detailReviews}</h2>
                 {listing.avg_rating && (
                   <span className="flex items-center gap-1">
                     <StarRating value={Math.round(listing.avg_rating)} readonly size="sm" />
@@ -227,7 +245,7 @@ export default function ChargerDetail() {
                   </span>
                 )}
               </div>
-              {reviews.length === 0 && <p className="text-ash text-sm">No reviews yet.</p>}
+              {reviews.length === 0 && <p className="text-ash text-sm">{t.detailNoReviews}</p>}
               <div className="space-y-3">
                 {reviews.map((r) => (
                   <div key={r.id} className="card">
@@ -242,11 +260,11 @@ export default function ChargerDetail() {
 
               {/* Leave a review (only for completed bookings — checked server-side) */}
               <div className="mt-4 card">
-                <h3 className="font-medium text-white text-sm mb-3">Leave a review</h3>
+                <h3 className="font-medium text-white text-sm mb-3">{t.detailLeaveReview}</h3>
                 <StarRating value={reviewRating} onChange={setReviewRating} size="lg" />
                 <textarea
                   className="input mt-3 min-h-[60px] resize-none text-sm"
-                  placeholder="Share your experience…"
+                  placeholder={t.detailShareExperience}
                   value={reviewComment}
                   onChange={(e) => setReviewComment(e.target.value)}
                 />
@@ -256,7 +274,7 @@ export default function ChargerDetail() {
                     // Find completed booking for this listing
                     const myBookings = await api.myBookings().catch(() => []);
                     const b = myBookings.find((bk) => bk.listing_id === listing!.id && bk.status === "completed");
-                    if (!b) { alert("You can only review listings you've used."); return; }
+                    if (!b) { alert(t.detailOnlyUsedListings); return; }
                     setReviewSubmitting(true);
                     try {
                       const rv = await api.createReview({ booking_id: b.id, rating: reviewRating, comment: reviewComment });
@@ -264,12 +282,12 @@ export default function ChargerDetail() {
                       setReviewRating(0);
                       setReviewComment("");
                     } catch (e: unknown) {
-                      alert(e instanceof Error ? e.message : "Could not submit review");
+                      alert(e instanceof Error ? e.message : t.detailCouldNotSubmitReview);
                     } finally { setReviewSubmitting(false); }
                   }}
                   className="btn-volt mt-3 text-sm disabled:opacity-40"
                 >
-                  {reviewSubmitting ? "Submitting…" : "Submit review"}
+                  {reviewSubmitting ? t.detailSubmittingReview : t.detailSubmitReview}
                 </button>
               </div>
             </div>
@@ -277,7 +295,7 @@ export default function ChargerDetail() {
 
           {/* Right: Booking */}
           <div className="card lg:self-start lg:sticky lg:top-6">
-            <h2 className="font-semibold text-white mb-4">Choose a package</h2>
+            <h2 className="font-semibold text-white mb-4">{t.detailChoosePackage}</h2>
             <div className="space-y-2 mb-5">
               {PACKAGES.map((pkg) => {
                 const p = (pkg.kwh * listing.price_per_kwh).toFixed(2);
@@ -299,8 +317,8 @@ export default function ChargerDetail() {
             </div>
 
             <div className="mb-4">
-              <label className="label">Notes for host (optional)</label>
-              <input className="input text-sm" placeholder="e.g. I'll arrive around 14:00" value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <label className="label">{t.detailNotesForHost}</label>
+              <input className="input text-sm" placeholder={t.detailNotesPlaceholder} value={notes} onChange={(e) => setNotes(e.target.value)} />
             </div>
 
             {price && (() => {
@@ -310,7 +328,7 @@ export default function ChargerDetail() {
               return (
                 <div className="space-y-1 text-sm mb-4 py-3 border-t border-border">
                   <div className="flex justify-between text-ash">
-                    <span>Price (excl. VAT)</span>
+                    <span>{t.successPriceExclVat}</span>
                     <span>€{net.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-ash">
@@ -318,7 +336,7 @@ export default function ChargerDetail() {
                     <span>€{vat.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between font-bold text-white pt-1 border-t border-border">
-                    <span>Total</span>
+                    <span>{t.detailTotal}</span>
                     <span>€{price}</span>
                   </div>
                 </div>
@@ -332,24 +350,30 @@ export default function ChargerDetail() {
               disabled={!selectedPkg || loading || !listing.is_available}
               className="btn-volt w-full text-center disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {!listing.is_available ? "Not available" : loading ? "Processing…" : selectedPkg ? `Book ${selectedPkg} kWh for €${price}` : "Select a package"}
+              {!listing.is_available
+                ? t.detailNotAvailable
+                : loading
+                ? t.detailProcessing
+                : selectedPkg
+                ? `${t.detailBookFor.replace("{kwh}", String(selectedPkg))} €${price}`
+                : t.detailSelectPackage}
             </button>
             <p className="mt-3 text-ash text-xs text-center leading-relaxed">
-              By paying, you acknowledge that you have read and understood the
-              ChargedEV.io Finland{" "}
-              <Link href="/legal/terms" className="text-volt underline">Terms and Conditions</Link>
-              {" "}and{" "}
-              <Link href="/legal/privacy" className="text-volt underline">Privacy Policy</Link>.
+              {t.detailAcknowledgment.split("{terms}")[0]}
+              <Link href={`/legal/terms${langSuffix}`} className="text-volt underline">{t.detailTermsLink}</Link>
+              {t.detailAcknowledgment.split("{terms}")[1]?.split("{privacy}")[0] ?? " and "}
+              <Link href={`/legal/privacy${langSuffix}`} className="text-volt underline">{t.detailPrivacyLink}</Link>
+              {t.detailAcknowledgment.split("{privacy}")[1] ?? "."}
             </p>
             <div className="mt-3 space-y-1.5">
               <div className="flex items-center justify-center gap-1.5 text-ash text-xs">
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3 text-volt shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                <span>Secured by SumUp · Visa · Mastercard · Amex · Apple Pay · Google Pay</span>
+                <span>{t.detailSecuredBy}</span>
               </div>
               {listing.shelly_enabled ? (
-                <p className="text-volt text-xs text-center font-medium">⚡ Charger starts automatically after payment</p>
+                <p className="text-volt text-xs text-center font-medium">⚡ {t.detailAutoAfterPayment}</p>
               ) : (
-                <p className="text-ash text-xs text-center">PIN delivered instantly after payment</p>
+                <p className="text-ash text-xs text-center">{t.detailPinAfterPayment}</p>
               )}
             </div>
           </div>
