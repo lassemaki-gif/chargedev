@@ -65,7 +65,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           >
             All markets
           </Link>
-          <Link href={`/sell?lang=${m.locale}`} className="btn-volt text-sm py-1.5 px-3 sm:py-2 sm:px-4">
+          <Link href={`/sell?lang=${m.lang}`} className="btn-volt text-sm py-1.5 px-3 sm:py-2 sm:px-4">
             <span className="hidden sm:inline">{t.becomeHost}</span>
             <span className="sm:hidden">{t.hostShort}</span>
           </Link>
@@ -87,7 +87,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           <p className="text-lg sm:text-xl text-ash max-w-xl mb-7 sm:mb-10 leading-relaxed">{t.body}</p>
           <div className="flex flex-wrap gap-3">
             <Link href="/charge" className="btn-volt text-sm sm:text-base">{t.findCharger} →</Link>
-            <Link href={`/sell?lang=${m.locale}`} className="btn-outline text-sm sm:text-base">{t.becomeHost}</Link>
+            <Link href={`/sell?lang=${m.lang}`} className="btn-outline text-sm sm:text-base">{t.becomeHost}</Link>
           </div>
         </div>
 
@@ -143,7 +143,7 @@ export default async function CountryPage({ params }: { params: Promise<{ countr
           <p className="text-ash text-sm">{t.earnBefore}{packagePrice(m, 80)}{t.earnAfter}</p>
         </div>
         <div className="flex gap-3 shrink-0">
-          <Link href={`/sell?lang=${m.locale}`} className="btn-volt text-sm">{t.becomeHost}</Link>
+          <Link href={`/sell?lang=${m.lang}`} className="btn-volt text-sm">{t.becomeHost}</Link>
           <Link href="/charge" className="btn-outline text-sm">{t.findCharger}</Link>
         </div>
       </section>
