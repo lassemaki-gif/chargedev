@@ -1,17 +1,38 @@
 "use client";
 // Metadata is set in the parent layout — this is a client component
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api, Listing } from "@/lib/api";
+import { pickUIT } from "@/lib/ui";
+import { pickUIT2 } from "@/lib/ui";
 
 const ChargerMap = dynamic(() => import("@/components/ChargerMap"), {
   ssr: false,
-  loading: () => <div className="h-full flex items-center justify-center text-ash text-sm">Loading map…</div>,
+  loading: () => <div className="h-full flex items-center justify-center text-ash text-sm">…</div>,
 });
 
 export default function BrowseChargers() {
+  return (
+    <Suspense fallback={null}>
+      <BrowseChargersInner />
+    </Suspense>
+  );
+}
+
+function BrowseChargersInner() {
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT(uiLang), [uiLang]);
+  const t2 = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [listings, setListings] = useState<Listing[]>([]);
   const [city, setCity] = useState("");
   const [loading, setLoading] = useState(true);
@@ -42,7 +63,7 @@ export default function BrowseChargers() {
         <div className="flex-1 min-w-0">
           <input
             className="input max-w-xs"
-            placeholder="Filter by city…"
+            placeholder={t2.chargeFilterByCity}
             value={city}
             onChange={(e) => setCity(e.target.value)}
           />
@@ -55,7 +76,7 @@ export default function BrowseChargers() {
               onClick={() => setView(v)}
               className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${view === v ? "bg-white/10 text-white" : "text-ash"}`}
             >
-              {v === "list" ? "List" : "Map"}
+              {v === "list" ? t2.chargeListView : t2.chargeMapView}
             </button>
           ))}
         </div>
@@ -65,19 +86,20 @@ export default function BrowseChargers() {
       <div className="flex flex-1 min-h-0">
         {/* List — always visible on desktop, toggleable on mobile */}
         <div className={`w-full lg:w-[420px] lg:flex flex-col overflow-y-auto border-r border-border ${view === "list" ? "flex" : "hidden"}`}>
-          {loading && <p className="text-ash p-6 text-sm">Loading chargers…</p>}
+          {loading && <p className="text-ash p-6 text-sm">{t2.chargeLoadingChargers}</p>}
           {!loading && filtered.length === 0 && (
             <div className="card m-6 text-ash text-sm">
-              No chargers found{city ? ` in "${city}"` : ""}. Try a different city.
+              {t.chargeNoResultsTitle}
+              {city ? ` — "${city}"` : ""}. {t.chargeNoResultsBody}
             </div>
           )}
           <div className="p-4 space-y-3">
             {filtered.map((l) => (
-              <Link key={l.id} href={`/charge/${l.id}`} className="card hover:border-volt/40 transition-colors group block">
+              <Link key={l.id} href={`/charge/${l.id}${langSuffix}`} className="card hover:border-volt/40 transition-colors group block">
                 <div className="flex items-start justify-between mb-2">
                   <span className="text-xl">{chargerIcon(l.charger_type)}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${l.is_available ? "bg-green-900/40 text-green-400" : "bg-gray-800 text-gray-400"}`}>
-                    {l.is_available ? "Available" : "Unavailable"}
+                    {l.is_available ? t2.chargeAvailable : t2.chargeUnavailable}
                   </span>
                 </div>
                 <h3 className="font-semibold text-white group-hover:text-volt transition-colors mb-1 line-clamp-1">{l.title}</h3>
@@ -85,9 +107,9 @@ export default function BrowseChargers() {
                 <div className="flex items-end justify-between gap-2 min-w-0">
                   <div className="shrink-0">
                     <span className="text-volt font-bold text-lg">€{l.price_per_kwh.toFixed(2)}</span>
-                    <span className="text-ash text-sm">/kWh incl. VAT</span>
+                    <span className="text-ash text-sm">/kWh {t2.chargeIncVat}</span>
                   </div>
-                  <span className="text-ash text-xs truncate">by {l.seller_name}</span>
+                  <span className="text-ash text-xs truncate">{t2.chargeByHost} {l.seller_name}</span>
                 </div>
               </Link>
             ))}

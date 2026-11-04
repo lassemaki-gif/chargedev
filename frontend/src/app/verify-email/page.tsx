@@ -1,14 +1,23 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { BACKEND } from "@/lib/api";
+import { pickUIT, pickUIT2 } from "@/lib/ui";
 
 function VerifyContent() {
   const params = useSearchParams();
-  const router = useRouter();
   const token = params.get("token");
+  const queryLang = params.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const t1 = useMemo(() => pickUIT(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
   const [email, setEmail] = useState("");
 
@@ -26,25 +35,25 @@ function VerifyContent() {
   if (status === "pending") return (
     <>
       <div className="text-4xl mb-4 animate-pulse">⚡</div>
-      <p className="text-ash">Verifying your email…</p>
+      <p className="text-ash">{t.verifyTitle}</p>
     </>
   );
 
   if (status === "success") return (
     <>
       <div className="text-5xl mb-4">✅</div>
-      <h2 className="text-2xl font-bold text-white mb-2">Email verified</h2>
-      <p className="text-ash text-sm mb-6">{email} is now verified. You can browse and book chargers.</p>
-      <Link href="/charge" className="btn-volt w-full text-center text-sm">Find a charger</Link>
+      <h2 className="text-2xl font-bold text-white mb-2">{t.verifyDoneTitle}</h2>
+      <p className="text-ash text-sm mb-6">{email} — {t.verifyDoneBody}</p>
+      <Link href={`/charge${langSuffix}`} className="btn-volt w-full text-center text-sm">{t1.navFindCharger}</Link>
     </>
   );
 
   return (
     <>
       <div className="text-4xl mb-4">⚠️</div>
-      <h2 className="text-xl font-bold text-white mb-2">Invalid link</h2>
-      <p className="text-ash text-sm mb-6">This verification link is invalid or has already been used.</p>
-      <Link href="/" className="btn-outline w-full text-center text-sm">Go home</Link>
+      <h2 className="text-xl font-bold text-white mb-2">{t.verifyFailedTitle}</h2>
+      <p className="text-ash text-sm mb-6">{t.verifyFailedBody}</p>
+      <Link href={`/?all=1${langSuffix ? "&" + langSuffix.slice(1) : ""}`} className="btn-outline w-full text-center text-sm">{t.forgotBackToSignIn}</Link>
     </>
   );
 }

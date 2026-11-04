@@ -1,10 +1,29 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { api } from "@/lib/api";
+import { pickUIT2 } from "@/lib/ui";
 
 export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForgotPasswordInner />
+    </Suspense>
+  );
+}
+
+function ForgotPasswordInner() {
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,19 +48,17 @@ export default function ForgotPasswordPage() {
           {sent ? (
             <>
               <div className="text-4xl mb-4">📬</div>
-              <h2 className="text-xl font-bold text-white mb-2">Check your inbox</h2>
-              <p className="text-ash text-sm mb-6">
-                If an account exists for {email}, we&apos;ve sent a password reset link. It expires in one hour.
-              </p>
-              <Link href="/sell" className="btn-outline w-full text-center text-sm">Back to sign in</Link>
+              <h2 className="text-xl font-bold text-white mb-2">{t.forgotSentTitle}</h2>
+              <p className="text-ash text-sm mb-6">{t.forgotSentBody.replace("{email}", email)}</p>
+              <Link href={`/sell${langSuffix}`} className="btn-outline w-full text-center text-sm">{t.forgotBackToSignIn}</Link>
             </>
           ) : (
             <>
-              <h2 className="text-xl font-bold text-white mb-2">Reset your password</h2>
-              <p className="text-ash text-sm mb-6">Enter the email you signed up with. We&apos;ll send you a link to pick a new password.</p>
+              <h2 className="text-xl font-bold text-white mb-2">{t.forgotTitle}</h2>
+              <p className="text-ash text-sm mb-6">{t.forgotBody}</p>
               <form onSubmit={onSubmit} className="space-y-4">
                 <div>
-                  <label className="label">Email</label>
+                  <label className="label">{t.forgotEmail}</label>
                   <input
                     className="input"
                     type="email"
@@ -52,11 +69,11 @@ export default function ForgotPasswordPage() {
                   />
                 </div>
                 <button type="submit" disabled={loading} className="btn-volt w-full text-center">
-                  {loading ? "Sending…" : "Send reset link"}
+                  {loading ? t.forgotSending : t.forgotSendLink}
                 </button>
               </form>
-              <Link href="/sell" className="mt-4 block text-ash text-sm hover:text-white transition-colors text-center">
-                Back to sign in
+              <Link href={`/sell${langSuffix}`} className="mt-4 block text-ash text-sm hover:text-white transition-colors text-center">
+                {t.forgotBackToSignIn}
               </Link>
             </>
           )}

@@ -1,17 +1,27 @@
 "use client";
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import { track } from "@vercel/analytics";
 import { useSearchParams, useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { Nav } from "@/components/Nav";
 import { api, Booking } from "@/lib/api";
 import { vatFromGross, netFromGross, VAT_LABEL } from "@/lib/vat";
+import { pickUIT, pickUIT2 } from "@/lib/ui";
 
 function SuccessContent() {
   const params = useSearchParams();
   const router = useRouter();
   const bookingIdParam = params.get("booking_id");
   const bookingId = bookingIdParam ? parseInt(bookingIdParam, 10) : null;
+  const queryLang = params.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT2(uiLang), [uiLang]);
+  const t1 = useMemo(() => pickUIT(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [booking, setBooking] = useState<Booking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -72,17 +82,17 @@ function SuccessContent() {
         };
         poll();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not verify payment.");
+        setError(err instanceof Error ? err.message : t.successCouldNotVerify);
       }
     };
     confirm();
-  }, [bookingId, router]);
+  }, [bookingId, router, t.successCouldNotVerify]);
 
   if (!booking && !error) return (
     <>
       <div className="text-4xl mb-4 animate-pulse">⚡</div>
-      <h2 className="text-xl font-bold text-white mb-2">Payment confirmed!</h2>
-      <p className="text-ash text-sm">Generating your session PIN…</p>
+      <h2 className="text-xl font-bold text-white mb-2">{t.successConfirmedTitle}</h2>
+      <p className="text-ash text-sm">{t.successGeneratingPin}</p>
     </>
   );
 
@@ -90,17 +100,15 @@ function SuccessContent() {
     <>
       <div className="text-4xl mb-4">⚠️</div>
       <p className="text-ash text-sm mb-4">{error}</p>
-      <button onClick={() => router.push("/charge")} className="btn-outline w-full text-center text-sm">Back to listings</button>
+      <button onClick={() => router.push(`/charge${langSuffix}`)} className="btn-outline w-full text-center text-sm">{t.successBackToListings}</button>
     </>
   );
 
   return (
     <>
       <div className="text-5xl mb-4">✅</div>
-      <h2 className="text-2xl font-bold text-white mb-2">You&apos;re all set!</h2>
-      <p className="text-ash text-sm mb-6">
-        Scan this QR with your phone at the charger, or tap Start below.
-      </p>
+      <h2 className="text-2xl font-bold text-white mb-2">{t.successAllSet}</h2>
+      <p className="text-ash text-sm mb-6">{t.successScanQr}</p>
 
       <div className="bg-night rounded-xl p-5 mb-3 flex flex-col items-center">
         {qrSvg ? (
@@ -110,34 +118,34 @@ function SuccessContent() {
           />
         ) : (
           <div className="w-56 h-56 flex items-center justify-center text-ash text-xs mb-3">
-            Generating QR…
+            {t.successGeneratingQr}
           </div>
         )}
-        <p className="text-ash text-xs">Scan to start charging</p>
+        <p className="text-ash text-xs">{t.successScanToStart}</p>
       </div>
 
       <button
-        onClick={() => router.push(`/charge/${booking!.listing_id}/start`)}
+        onClick={() => router.push(`/charge/${booking!.listing_id}/start${langSuffix}`)}
         className="btn-volt w-full text-sm py-3 mb-4"
       >
-        Start charging now →
+        {t.successStartNow} →
       </button>
 
       <div className="flex items-center justify-between gap-3 mb-6 text-xs">
-        <span className="text-ash">Backup PIN</span>
+        <span className="text-ash">{t.successBackupPin}</span>
         <button
           onClick={() => copyPin(booking!.pin_code!)}
           className="font-mono font-semibold text-volt tracking-widest hover:text-white transition-colors"
         >
-          {copied ? "✓ Copied!" : booking!.pin_code}
+          {copied ? t.successCopied : booking!.pin_code}
         </button>
       </div>
       <div className="text-left space-y-2 text-sm text-ash mb-4">
-        <div className="flex justify-between"><span>Charger</span><span className="text-white">{booking!.listing_title}</span></div>
-        <div className="flex justify-between"><span>Address</span><span className="text-white">{booking!.listing_address}</span></div>
-        <div className="flex justify-between"><span>Package</span><span className="text-white">{booking!.package_kwh} kWh</span></div>
+        <div className="flex justify-between"><span>{t.successCharger}</span><span className="text-white">{booking!.listing_title}</span></div>
+        <div className="flex justify-between"><span>{t.successAddress}</span><span className="text-white">{booking!.listing_address}</span></div>
+        <div className="flex justify-between"><span>{t.successPackage}</span><span className="text-white">{booking!.package_kwh} kWh</span></div>
         <div className="flex justify-between border-t border-border pt-2 mt-1">
-          <span>Price (excl. VAT)</span>
+          <span>{t.successPriceExclVat}</span>
           <span>€{netFromGross(booking!.total_eur).toFixed(2)}</span>
         </div>
         <div className="flex justify-between">
@@ -145,16 +153,16 @@ function SuccessContent() {
           <span>€{vatFromGross(booking!.total_eur).toFixed(2)}</span>
         </div>
         <div className="flex justify-between font-medium text-white">
-          <span>Total paid</span>
+          <span>{t.successTotalPaid}</span>
           <span>€{booking!.total_eur.toFixed(2)}</span>
         </div>
       </div>
       <div className="flex gap-3">
-        <button onClick={() => router.push("/bookings")} className="btn-volt flex-1 text-sm text-center">
-          My bookings
+        <button onClick={() => router.push(`/bookings${langSuffix}`)} className="btn-volt flex-1 text-sm text-center">
+          {t1.navMyBookings}
         </button>
-        <button onClick={() => router.push("/charge")} className="btn-outline flex-1 text-sm text-center">
-          Find more
+        <button onClick={() => router.push(`/charge${langSuffix}`)} className="btn-outline flex-1 text-sm text-center">
+          {t.successFindMore}
         </button>
       </div>
     </>
