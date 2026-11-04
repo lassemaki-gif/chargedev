@@ -1,21 +1,24 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Nav } from "@/components/Nav";
 import { MessageThread } from "@/components/MessageThread";
 import { api, Listing, Booking, SellerEarnings, ShellyStatus, OcppChargePointStatus, PayoutAccount, HostSessionOut } from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
+import { pickUIT, pickUIT2, UIT, UIT2 } from "@/lib/ui";
 
-function statusBadge(s: string) {
-  if (s === "completed") return <span className="badge-green">Completed</span>;
-  if (s === "confirmed") return <span className="badge-blue">Confirmed</span>;
-  if (s === "active") return <span className="badge-yellow">Active</span>;
+function statusBadge(s: string, t: UIT) {
+  if (s === "completed") return <span className="badge-green">{t.statusCompleted}</span>;
+  if (s === "confirmed") return <span className="badge-blue">{t.statusConfirmed}</span>;
+  if (s === "active") return <span className="badge-yellow">{t.statusActive}</span>;
+  if (s === "pending") return <span className="badge-gray">{t.statusPending}</span>;
+  if (s === "cancelled") return <span className="badge-gray">{t.statusCancelled}</span>;
   return <span className="badge-gray">{s}</span>;
 }
 
 export default function SellerDashboard() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-ash">Loading…</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-ash">…</div>}>
       <SellerDashboardInner />
     </Suspense>
   );
@@ -24,6 +27,14 @@ export default function SellerDashboard() {
 function SellerDashboardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryLang = searchParams?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t1 = useMemo(() => pickUIT(uiLang), [uiLang]);
+  const t2 = useMemo(() => pickUIT2(uiLang), [uiLang]);
   const [listings, setListings] = useState<Listing[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [earnings, setEarnings] = useState<SellerEarnings | null>(null);
@@ -105,7 +116,7 @@ function SellerDashboardInner() {
       .catch((e) => {
         const msg: string = e.message ?? "";
         if (msg === "Not authenticated" || msg === "Invalid token") router.push("/sell");
-        else setError(msg || "Failed to load dashboard");
+        else setError(msg || t2.sellerDashFailed);
       })
       .finally(() => setLoading(false));
   }, [router]);
@@ -116,7 +127,7 @@ function SellerDashboardInner() {
       const hs = await api.hostSessionStart(listingId);
       setHostSessions((prev) => ({ ...prev, [listingId]: hs }));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to start charging");
+      alert(err instanceof Error ? err.message : t2.sellerFailedStart);
     } finally {
       setHostSessionBusy(null);
     }
@@ -129,7 +140,7 @@ function SellerDashboardInner() {
       const hs = await api.hostSessionStop(listingId);
       setHostSessions((prev) => ({ ...prev, [listingId]: hs.status === "completed" ? null : hs }));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Failed to stop charging");
+      alert(err instanceof Error ? err.message : t2.sellerFailedStop);
     } finally {
       setHostSessionBusy(null);
     }
@@ -175,7 +186,7 @@ function SellerDashboardInner() {
         window.location.href = res.checkout_url;
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to start payment");
+      setError(err instanceof Error ? err.message : t2.sellerFailedPayment);
       setFeeLoading(false);
     }
   }
@@ -275,7 +286,7 @@ function SellerDashboardInner() {
       await api.completeBooking(id);
       setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status: "completed" } : b));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to mark complete");
+      setError(err instanceof Error ? err.message : t2.sellerFailedMarkComplete);
     } finally {
       setCompleting(null);
     }
@@ -288,8 +299,8 @@ function SellerDashboardInner() {
       <div className="px-4 sm:px-6 lg:px-16 py-6 sm:py-12 max-w-5xl">
         <div className="flex items-start justify-between gap-4 mb-6 sm:mb-8">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white">Host dashboard</h1>
-            <p className="text-ash text-sm mt-1">Manage your chargers and bookings</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">{t2.sellerDashTitle}</h1>
+            <p className="text-ash text-sm mt-1">{t2.sellerDashSubtitle}</p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             {!notifEnabled && (
@@ -311,16 +322,16 @@ function SellerDashboardInner() {
         {earnings && (
           <div className="grid sm:grid-cols-3 gap-4 mb-6">
             <div className="card border-volt/20">
-              <div className="text-ash text-sm mb-1">Pending transfer</div>
+              <div className="text-ash text-sm mb-1">{t2.sellerPendingTransfer}</div>
               <div className="text-2xl font-bold text-volt">€{earnings.pending_eur.toFixed(2)}</div>
-              <div className="text-ash text-xs mt-1">Transferred immediately on payment</div>
+              <div className="text-ash text-xs mt-1">{t2.sellerTransferredImmediately}</div>
             </div>
             <div className="card">
-              <div className="text-ash text-sm mb-1">Total earned</div>
+              <div className="text-ash text-sm mb-1">{t2.sellerTotalEarned}</div>
               <div className="text-2xl font-bold text-white">€{earnings.total_eur.toFixed(2)}</div>
             </div>
             <div className="card">
-              <div className="text-ash text-sm mb-1">Transferred to you</div>
+              <div className="text-ash text-sm mb-1">{t2.sellerTransferredToYou}</div>
               <div className="text-2xl font-bold text-white">€{earnings.paid_out_eur.toFixed(2)}</div>
             </div>
           </div>
@@ -347,49 +358,47 @@ function SellerDashboardInner() {
 
         {/* Payout account — IBAN for weekly SEPA host payouts */}
         <div className="card mb-10">
-          <h2 className="font-semibold text-white mb-1">Payout account</h2>
+          <h2 className="font-semibold text-white mb-1">{t2.sellerPayoutAccount}</h2>
           {payoutAccount?.is_set && !payoutEditing ? (
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
-                <span className="text-green-400 text-sm font-medium">Payout account on file ✓</span>
+                <span className="text-green-400 text-sm font-medium">{t2.sellerPayoutOnFile}</span>
                 <p className="text-ash text-xs mt-0.5">
                   {payoutAccount.account_holder} ·{" "}
                   {payoutAccount.payout_method === "manual_intl"
-                    ? `International wire (${payoutAccount.payout_country ?? "—"})`
-                    : `IBAN ending ${payoutAccount.iban_last4 ?? "—"}`}
+                    ? `${t2.sellerPayoutMethodWire} (${payoutAccount.payout_country ?? "—"})`
+                    : `IBAN ••${payoutAccount.iban_last4 ?? "—"}`}
                 </p>
                 <p className="text-ash text-xs mt-1">
                   {payoutAccount.payout_method === "manual_intl"
-                    ? "Your earnings (80% of each booking, net of VAT) are held and wired to this account by ChargedEV. International wires may run on a monthly cycle rather than weekly."
-                    : "Your earnings (80% of each booking, net of VAT) are paid out weekly via SEPA to this account."}
+                    ? t2.sellerPayoutMonthlyIntl
+                    : t2.sellerPayoutWeeklySepa}
                 </p>
               </div>
               <button
                 onClick={() => { setPayoutEditing(true); setPayoutError(null); }}
                 className="text-xs text-ash hover:text-white"
               >
-                Update
+                {t2.sellerUpdate}
               </button>
             </div>
           ) : (
             <>
-              <p className="text-ash text-sm mb-4">
-                Add the bank account where you&apos;d like your earnings paid out. SEPA (EUR, weekly) if your bank is in the eurozone; otherwise an international wire from ChargedEV.
-              </p>
+              <p className="text-ash text-sm mb-4">{t2.sellerAddPayout}</p>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-ash text-xs mb-1">Payout method</label>
+                  <label className="block text-ash text-xs mb-1">{t2.sellerPayoutMethod}</label>
                   <select
                     value={payoutForm.payout_method}
                     onChange={(e) => setPayoutForm({ ...payoutForm, payout_method: e.target.value as "sepa" | "manual_intl" })}
                     className="input w-full"
                   >
-                    <option value="sepa">SEPA (eurozone IBAN — weekly, free)</option>
-                    <option value="manual_intl">International wire (outside SEPA)</option>
+                    <option value="sepa">{t2.sellerPayoutMethodSepa}</option>
+                    <option value="manual_intl">{t2.sellerPayoutMethodWire}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-ash text-xs mb-1">Country (ISO code)</label>
+                  <label className="block text-ash text-xs mb-1">{t2.sellerCountryCode}</label>
                   <input
                     type="text"
                     value={payoutForm.payout_country}
@@ -402,12 +411,12 @@ function SellerDashboardInner() {
                   />
                 </div>
                 <div>
-                  <label className="block text-ash text-xs mb-1">Account holder</label>
+                  <label className="block text-ash text-xs mb-1">{t2.sellerAccountHolder}</label>
                   <input
                     type="text"
                     value={payoutForm.account_holder}
                     onChange={(e) => setPayoutForm({ ...payoutForm, account_holder: e.target.value })}
-                    placeholder="Full name as it appears on your bank account"
+                    placeholder={t2.sellerAccountHolderPlaceholder}
                     className="input w-full"
                     maxLength={120}
                   />
@@ -428,20 +437,18 @@ function SellerDashboardInner() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-ash text-xs mb-1">Bank wire details</label>
+                    <label className="block text-ash text-xs mb-1">{t2.sellerBankWireDetails}</label>
                     <textarea
                       value={payoutForm.payout_details}
                       onChange={(e) => setPayoutForm({ ...payoutForm, payout_details: e.target.value })}
-                      placeholder={"Bank name:\nBank address:\nSWIFT/BIC:\nAccount number:\nRouting / transit / sort code:\nAny intermediary bank details"}
+                      placeholder={t2.sellerBankWirePlaceholder}
                       className="input w-full font-mono text-xs"
                       rows={8}
                       maxLength={3800}
                       autoComplete="off"
                       spellCheck={false}
                     />
-                    <p className="text-ash text-xs mt-1">
-                      We&apos;ll use these to wire your earnings manually from our bank. Include enough detail for an international wire.
-                    </p>
+                    <p className="text-ash text-xs mt-1">{t2.sellerBankWireHint}</p>
                   </div>
                 )}
                 {payoutError && <p className="text-red-400 text-xs">{payoutError}</p>}
@@ -457,14 +464,14 @@ function SellerDashboardInner() {
                     }
                     className="btn-volt text-sm px-6 disabled:opacity-40"
                   >
-                    {payoutSaving ? "Saving…" : "Save payout account"}
+                    {payoutSaving ? t2.sellerSavingPayout : t2.sellerSavePayout}
                   </button>
                   {payoutEditing && (
                     <button
                       onClick={() => { setPayoutEditing(false); setPayoutError(null); setPayoutForm({ payout_method: "sepa", account_holder: "", payout_country: "FI", iban: "", payout_details: "" }); }}
                       className="btn-outline text-sm px-4"
                     >
-                      Cancel
+                      {t2.sellerCancel}
                     </button>
                   )}
                 </div>
@@ -476,7 +483,7 @@ function SellerDashboardInner() {
         {/* Listings */}
         <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-lg font-semibold text-white">Your chargers</h2>
+            <h2 className="text-lg font-semibold text-white">{t2.sellerYourChargers}</h2>
             {DEBUG_ENABLED && (
               <button
                 onClick={toggleDebugMode}
@@ -554,7 +561,7 @@ function SellerDashboardInner() {
                       onClick={() => toggle(l.id)}
                       className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${l.is_available ? "bg-green-900/40 text-green-400 hover:bg-red-900/40 hover:text-red-400" : "bg-gray-800 text-gray-400 hover:bg-green-900/40 hover:text-green-400"}`}
                     >
-                      {l.is_available ? "Available" : "Unavailable"}
+                      {l.is_available ? t2.sellerAvailable : t2.sellerUnavailable}
                     </button>
                   </div>
                 </div>
@@ -575,7 +582,7 @@ function SellerDashboardInner() {
                         disabled={hostSessionBusy === l.id}
                         className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-900/30 text-red-400 hover:bg-red-900/50 disabled:opacity-40"
                       >
-                        {hostSessionBusy === l.id ? "Stopping…" : "Stop charging"}
+                        {hostSessionBusy === l.id ? t2.sellerChargingStopping : t2.sellerStopCharging}
                       </button>
                     </>
                   ) : (
@@ -601,7 +608,7 @@ function SellerDashboardInner() {
                             disabled={hostSessionBusy === l.id}
                             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-volt/10 text-volt border border-volt/20 hover:bg-volt/20 disabled:opacity-40"
                           >
-                            {hostSessionBusy === l.id ? "Starting…" : "Charge my car"}
+                            {hostSessionBusy === l.id ? t2.sellerChargingStarting : t2.sellerChargeMyCar}
                           </button>
                         )}
                       </div>
@@ -764,9 +771,9 @@ function SellerDashboardInner() {
         )}
 
         {/* Bookings */}
-        <h2 className="text-lg font-semibold text-white mb-4">Bookings</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">{t2.sellerBookingsHeading}</h2>
         {bookings.length === 0 ? (
-          <div className="card text-ash text-sm">No bookings yet.</div>
+          <div className="card text-ash text-sm">{t2.sellerNoBookings}</div>
         ) : (
           <div className="space-y-3">
             {bookings.map((b) => (
@@ -775,6 +782,8 @@ function SellerDashboardInner() {
                 b={b}
                 completing={completing}
                 onComplete={() => complete(b.id)}
+                t1={t1}
+                t2={t2}
               />
             ))}
           </div>
@@ -788,10 +797,14 @@ function SellerBookingRow({
   b,
   completing,
   onComplete,
+  t1,
+  t2,
 }: {
   b: Booking;
   completing: number | null;
   onComplete: () => void;
+  t1: UIT;
+  t2: UIT2;
 }) {
   const [msgOpen, setMsgOpen] = useState(false);
   return (
@@ -801,16 +814,16 @@ function SellerBookingRow({
           <div className="font-semibold text-white text-sm sm:text-base truncate">{b.listing_title}</div>
           <div className="text-ash text-xs sm:text-sm mt-0.5">
             <span className="block sm:inline">{b.buyer_name} · {b.package_kwh} kWh · €{b.total_eur.toFixed(2)}</span>
-            <span className="block sm:inline sm:ml-1">you earn <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span></span>
+            <span className="block sm:inline sm:ml-1">{t2.sellerYouEarn} <span className="text-volt font-medium">€{b.seller_earnings_eur.toFixed(2)}</span></span>
           </div>
           <div className="mt-2 flex items-center gap-3 flex-wrap">
-            {statusBadge(b.status)}
+            {statusBadge(b.status, t1)}
             {b.pin_code && (
               <span className="font-mono text-volt text-sm bg-volt/10 px-2 py-0.5 rounded">
                 PIN: {b.pin_code}
               </span>
             )}
-            {b.paid_out && <span className="badge-green">Transferred</span>}
+            {b.paid_out && <span className="badge-green">{t2.sellerTransferred}</span>}
           </div>
         </div>
         {(b.status === "confirmed" || b.status === "active") && (
@@ -819,7 +832,7 @@ function SellerBookingRow({
             disabled={completing === b.id}
             className="shrink-0 px-3 py-1.5 rounded-lg text-sm bg-volt/10 text-volt hover:bg-volt/20 transition-colors font-medium disabled:opacity-50"
           >
-            {completing === b.id ? "Saving…" : "Mark complete"}
+            {completing === b.id ? t2.sellerMarkingComplete : t2.sellerMarkComplete}
           </button>
         )}
       </div>
@@ -830,7 +843,7 @@ function SellerBookingRow({
             onClick={() => setMsgOpen((v) => !v)}
             className="text-ash hover:text-white text-xs transition-colors"
           >
-            {msgOpen ? "Hide messages ↑" : "Message buyer ↓"}
+            {msgOpen ? `${t2.sellerHideMessages} ↑` : `${t2.sellerMessageBuyer} ↓`}
           </button>
           {msgOpen && (
             <div className="mt-2">

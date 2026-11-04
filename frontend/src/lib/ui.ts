@@ -207,6 +207,59 @@ export interface UIT2 {
   startFailedLoad: string;
   startFailedStart: string;
   startFailedStop: string;
+
+  // Seller dashboard /sell/dashboard (Phase 2c)
+  sellerDashTitle: string;
+  sellerDashSubtitle: string;
+  sellerDashFailed: string;
+  sellerPendingTransfer: string;
+  sellerTransferredImmediately: string;
+  sellerTotalEarned: string;
+  sellerTransferredToYou: string;
+  sellerPayoutAccount: string;
+  sellerPayoutMethod: string;
+  sellerPayoutMethodSepa: string;
+  sellerPayoutMethodWire: string;
+  sellerCountryCode: string;
+  sellerAccountHolder: string;
+  sellerAccountHolderPlaceholder: string;
+  sellerBankWireDetails: string;
+  sellerBankWirePlaceholder: string;
+  sellerBankWireHint: string;
+  sellerSavePayout: string;
+  sellerSavingPayout: string;
+  sellerCancel: string;
+  sellerPayoutOnFile: string;
+  sellerPayoutWeeklySepa: string;
+  sellerPayoutMonthlyIntl: string;
+  sellerUpdate: string;
+  sellerAddPayout: string;
+  sellerYourChargers: string;
+  sellerNoChargers: string;
+  sellerAddCharger: string;
+  sellerAvailable: string;
+  sellerUnavailable: string;
+  sellerChargeMyCar: string;
+  sellerStopCharging: string;
+  sellerChargingStarting: string;
+  sellerChargingStopping: string;
+  sellerChargingNow: string;
+  sellerSessionDelivered: string;
+  sellerManageListing: string;
+  sellerToggleOff: string;
+  sellerToggleOn: string;
+  sellerBookingsHeading: string;
+  sellerNoBookings: string;
+  sellerMarkComplete: string;
+  sellerMarkingComplete: string;
+  sellerYouEarn: string;
+  sellerTransferred: string;
+  sellerMessageBuyer: string;
+  sellerHideMessages: string;
+  sellerFailedStart: string;
+  sellerFailedStop: string;
+  sellerFailedPayment: string;
+  sellerFailedMarkComplete: string;
 }
 
 export const UI_LANG: Record<string, UIT> = {
@@ -1750,6 +1803,57 @@ const UI2_EN: UIT2 = {
   startFailedLoad: "Failed to load charger",
   startFailedStart: "Failed to start session",
   startFailedStop: "Failed to stop session",
+  sellerDashTitle: "Host dashboard",
+  sellerDashSubtitle: "Manage your chargers and bookings",
+  sellerDashFailed: "Failed to load dashboard",
+  sellerPendingTransfer: "Pending transfer",
+  sellerTransferredImmediately: "Transferred immediately on payment",
+  sellerTotalEarned: "Total earned",
+  sellerTransferredToYou: "Transferred to you",
+  sellerPayoutAccount: "Payout account",
+  sellerPayoutMethod: "Payout method",
+  sellerPayoutMethodSepa: "SEPA (EUR, weekly, free)",
+  sellerPayoutMethodWire: "International wire (outside SEPA)",
+  sellerCountryCode: "Country (ISO code)",
+  sellerAccountHolder: "Account holder",
+  sellerAccountHolderPlaceholder: "Full name as it appears on your bank account",
+  sellerBankWireDetails: "Bank wire details",
+  sellerBankWirePlaceholder: "Bank name:\nBank address:\nSWIFT/BIC:\nAccount number:\nRouting / transit / sort code:\nAny intermediary bank details",
+  sellerBankWireHint: "We'll use these to wire your earnings manually from our bank. Include enough detail for an international wire.",
+  sellerSavePayout: "Save payout account",
+  sellerSavingPayout: "Saving…",
+  sellerCancel: "Cancel",
+  sellerPayoutOnFile: "Payout account on file ✓",
+  sellerPayoutWeeklySepa: "Your earnings (80% of each booking, net of VAT) are paid out weekly via SEPA to this account.",
+  sellerPayoutMonthlyIntl: "Your earnings (80% of each booking, net of VAT) are held and wired to this account by ChargedEV. International wires may run on a monthly cycle rather than weekly.",
+  sellerUpdate: "Update",
+  sellerAddPayout: "Add the bank account where you'd like your earnings paid out. SEPA (EUR, weekly) if your bank is in the eurozone; otherwise an international wire from ChargedEV.",
+  sellerYourChargers: "Your chargers",
+  sellerNoChargers: "You don't have any chargers listed yet.",
+  sellerAddCharger: "Add a charger",
+  sellerAvailable: "Available",
+  sellerUnavailable: "Unavailable",
+  sellerChargeMyCar: "Charge my car",
+  sellerStopCharging: "Stop charging",
+  sellerChargingStarting: "Starting…",
+  sellerChargingStopping: "Stopping…",
+  sellerChargingNow: "Charging now",
+  sellerSessionDelivered: "Delivered",
+  sellerManageListing: "Manage",
+  sellerToggleOff: "Off",
+  sellerToggleOn: "On",
+  sellerBookingsHeading: "Bookings",
+  sellerNoBookings: "No bookings yet.",
+  sellerMarkComplete: "Mark complete",
+  sellerMarkingComplete: "Saving…",
+  sellerYouEarn: "you earn",
+  sellerTransferred: "Transferred",
+  sellerMessageBuyer: "Message buyer",
+  sellerHideMessages: "Hide messages",
+  sellerFailedStart: "Failed to start charging",
+  sellerFailedStop: "Failed to stop charging",
+  sellerFailedPayment: "Failed to start payment",
+  sellerFailedMarkComplete: "Failed to mark complete",
 };
 
 // Each non-English entry supplies overrides; missing keys fall back to English.
@@ -1881,6 +1985,57 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     startFailedLoad: "Latauspisteen lataus epäonnistui",
     startFailedStart: "Istunnon aloitus epäonnistui",
     startFailedStop: "Istunnon lopetus epäonnistui",
+    sellerDashTitle: "Isännän hallinta",
+    sellerDashSubtitle: "Hallitse latauspisteitäsi ja varauksia",
+    sellerDashFailed: "Hallinnan lataus epäonnistui",
+    sellerPendingTransfer: "Odottavat tilitykset",
+    sellerTransferredImmediately: "Siirretään heti maksun jälkeen",
+    sellerTotalEarned: "Yhteensä ansaittu",
+    sellerTransferredToYou: "Sinulle siirretty",
+    sellerPayoutAccount: "Tilitys­tili",
+    sellerPayoutMethod: "Tilitystapa",
+    sellerPayoutMethodSepa: "SEPA (EUR, viikoittain, ilmainen)",
+    sellerPayoutMethodWire: "Kansainvälinen tilisiirto (SEPA:n ulkopuolella)",
+    sellerCountryCode: "Maa (ISO-koodi)",
+    sellerAccountHolder: "Tilin haltija",
+    sellerAccountHolderPlaceholder: "Koko nimi kuten pankkitilillä",
+    sellerBankWireDetails: "Pankkitiedot siirtoa varten",
+    sellerBankWirePlaceholder: "Pankin nimi:\nPankin osoite:\nSWIFT/BIC:\nTilinumero:\nReititys / transit / sort code:\nMahdolliset välipankkitiedot",
+    sellerBankWireHint: "Käytämme näitä tilitysten tekemiseen pankistamme. Liitä riittävät tiedot kansainvälistä siirtoa varten.",
+    sellerSavePayout: "Tallenna tilitystili",
+    sellerSavingPayout: "Tallennetaan…",
+    sellerCancel: "Peruuta",
+    sellerPayoutOnFile: "Tilitystili tallennettu ✓",
+    sellerPayoutWeeklySepa: "Tulosi (80 % varauksesta, ilman ALV:tä) tilitetään viikoittain SEPA:lla tälle tilille.",
+    sellerPayoutMonthlyIntl: "Tulosi (80 % varauksesta, ilman ALV:tä) säilytetään ja siirretään tälle tilille ChargedEV:n toimesta. Kansainväliset siirrot voivat tapahtua kuukausittain viikoittaisen sijaan.",
+    sellerUpdate: "Päivitä",
+    sellerAddPayout: "Lisää pankkitili, jolle haluat ansiosi maksettavan. SEPA (EUR, viikoittain) jos pankkisi on euroalueella; muuten kansainvälinen tilisiirto ChargedEV:ltä.",
+    sellerYourChargers: "Latauspisteesi",
+    sellerNoChargers: "Sinulla ei ole vielä listattuja latauspisteitä.",
+    sellerAddCharger: "Lisää latauspiste",
+    sellerAvailable: "Vapaa",
+    sellerUnavailable: "Varattu",
+    sellerChargeMyCar: "Lataa oma auto",
+    sellerStopCharging: "Lopeta lataus",
+    sellerChargingStarting: "Aloitetaan…",
+    sellerChargingStopping: "Lopetetaan…",
+    sellerChargingNow: "Latautuu nyt",
+    sellerSessionDelivered: "Toimitettu",
+    sellerManageListing: "Hallitse",
+    sellerToggleOff: "Pois",
+    sellerToggleOn: "Päällä",
+    sellerBookingsHeading: "Varaukset",
+    sellerNoBookings: "Ei vielä varauksia.",
+    sellerMarkComplete: "Merkitse valmiiksi",
+    sellerMarkingComplete: "Tallennetaan…",
+    sellerYouEarn: "ansaitset",
+    sellerTransferred: "Tilitetty",
+    sellerMessageBuyer: "Viesti ostajalle",
+    sellerHideMessages: "Piilota viestit",
+    sellerFailedStart: "Latauksen aloitus epäonnistui",
+    sellerFailedStop: "Latauksen pysäytys epäonnistui",
+    sellerFailedPayment: "Maksun aloitus epäonnistui",
+    sellerFailedMarkComplete: "Valmiiksi merkintä epäonnistui",
   },
   sv: {
     chargeListView: "Lista", chargeMapView: "Karta",
