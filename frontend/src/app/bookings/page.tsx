@@ -1,20 +1,22 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Nav } from "@/components/Nav";
 import { MessageThread } from "@/components/MessageThread";
 import { api, Booking } from "@/lib/api";
+import { pickUIT, UIT } from "@/lib/ui";
 
-function statusBadge(s: string) {
-  if (s === "completed") return <span className="badge-green">Completed</span>;
-  if (s === "confirmed") return <span className="badge-blue">Confirmed</span>;
-  if (s === "active") return <span className="badge-yellow">Active</span>;
-  if (s === "pending") return <span className="badge-gray">Pending</span>;
+function statusBadge(s: string, t: UIT) {
+  if (s === "completed") return <span className="badge-green">{t.statusCompleted}</span>;
+  if (s === "confirmed") return <span className="badge-blue">{t.statusConfirmed}</span>;
+  if (s === "active") return <span className="badge-yellow">{t.statusActive}</span>;
+  if (s === "pending") return <span className="badge-gray">{t.statusPending}</span>;
+  if (s === "cancelled") return <span className="badge-gray">{t.statusCancelled}</span>;
   return <span className="badge-gray">{s}</span>;
 }
 
-function CopyPin({ pin }: { pin: string }) {
+function CopyPin({ pin, t }: { pin: string; t: UIT }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(pin).then(() => {
@@ -28,13 +30,30 @@ function CopyPin({ pin }: { pin: string }) {
       className="inline-flex items-center gap-1.5 font-mono text-volt text-sm bg-volt/10 px-2.5 py-1 rounded hover:bg-volt/20 transition-colors"
     >
       {pin}
-      <span className="text-xs text-volt/60">{copied ? "✓" : "copy"}</span>
+      <span className="text-xs text-volt/60">{copied ? t.bookingsCopied : t.bookingsCopy}</span>
     </button>
   );
 }
 
 export default function BookingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <BookingsPageInner />
+    </Suspense>
+  );
+}
+
+function BookingsPageInner() {
   const router = useRouter();
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT(uiLang), [uiLang]);
+  const langSuffix = queryLang ? `?lang=${queryLang}` : "";
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,8 +91,7 @@ export default function BookingsPage() {
       <Nav />
       <div className="px-4 sm:px-6 lg:px-16 py-8 sm:py-12 max-w-3xl">
         <div className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">My bookings</h1>
-          <p className="text-ash text-sm mt-1">Your charging sessions and history</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">{t.bookingsTitle}</h1>
         </div>
 
         {error && (
@@ -83,18 +101,18 @@ export default function BookingsPage() {
         {bookings.length === 0 && (
           <div className="card text-center py-12">
             <div className="text-4xl mb-3">⚡</div>
-            <p className="text-white font-medium mb-1">No bookings yet</p>
-            <p className="text-ash text-sm mb-6">Find a charger near you and book your first session.</p>
-            <Link href="/charge" className="btn-volt text-sm">Find a charger</Link>
+            <p className="text-white font-medium mb-1">{t.bookingsNoBookingsTitle}</p>
+            <p className="text-ash text-sm mb-6">{t.bookingsNoBookingsBody}</p>
+            <Link href={`/charge${langSuffix}`} className="btn-volt text-sm">{t.bookingsFindCharger}</Link>
           </div>
         )}
 
         {active.length > 0 && (
           <section className="mb-8">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-volt mb-3">Active</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-volt mb-3">{t.bookingsActive}</h2>
             <div className="space-y-3">
               {active.map((b) => (
-                <BookingCard key={b.id} booking={b} />
+                <BookingCard key={b.id} booking={b} t={t} langSuffix={langSuffix} />
               ))}
             </div>
           </section>
@@ -102,10 +120,10 @@ export default function BookingsPage() {
 
         {past.length > 0 && (
           <section>
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-ash mb-3">History</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-ash mb-3">{t.bookingsHistory}</h2>
             <div className="space-y-3">
               {past.map((b) => (
-                <BookingCard key={b.id} booking={b} />
+                <BookingCard key={b.id} booking={b} t={t} langSuffix={langSuffix} />
               ))}
             </div>
           </section>
@@ -115,7 +133,7 @@ export default function BookingsPage() {
   );
 }
 
-function BookingCard({ booking: b }: { booking: Booking }) {
+function BookingCard({ booking: b, t, langSuffix }: { booking: Booking; t: UIT; langSuffix: string }) {
   const [msgOpen, setMsgOpen] = useState(false);
   const date = new Date(b.created_at).toLocaleDateString(undefined, {
     day: "numeric", month: "short", year: "numeric",
@@ -126,7 +144,7 @@ function BookingCard({ booking: b }: { booking: Booking }) {
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
           <Link
-            href={`/charge/${b.listing_id}`}
+            href={`/charge/${b.listing_id}${langSuffix}`}
             className="font-semibold text-white hover:text-volt transition-colors line-clamp-1"
           >
             {b.listing_title}
@@ -134,34 +152,34 @@ function BookingCard({ booking: b }: { booking: Booking }) {
           <p className="text-ash text-xs sm:text-sm truncate">{b.listing_address}</p>
         </div>
         <div className="shrink-0 text-right">
-          {statusBadge(b.status)}
+          {statusBadge(b.status, t)}
           <p className="text-ash text-xs mt-1">{date}</p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ash mb-3">
         <span><span className="text-white font-medium">{b.package_kwh} kWh</span></span>
-        <span>€{b.total_eur.toFixed(2)} paid</span>
+        <span>€{b.total_eur.toFixed(2)}</span>
       </div>
 
       {b.pin_code && (
         <div className="flex items-center gap-2">
-          <span className="text-ash text-xs">Session PIN</span>
-          <CopyPin pin={b.pin_code} />
+          <span className="text-ash text-xs">{t.bookingsSessionPin}</span>
+          <CopyPin pin={b.pin_code} t={t} />
         </div>
       )}
 
       {b.status === "confirmed" && (
         <Link
-          href={`/charge/${b.listing_id}/start`}
+          href={`/charge/${b.listing_id}/start${langSuffix}`}
           className="btn-volt w-full text-sm text-center mt-3"
         >
-          Start charging →
+          {t.bookingsStartCharging} →
         </Link>
       )}
 
       {b.status === "pending" && (
-        <p className="text-ash text-xs mt-2">Payment pending — your PIN will appear here once confirmed.</p>
+        <p className="text-ash text-xs mt-2">{t.bookingsPaymentPending}</p>
       )}
 
       {b.status !== "pending" && (
@@ -170,7 +188,7 @@ function BookingCard({ booking: b }: { booking: Booking }) {
             onClick={() => setMsgOpen((v) => !v)}
             className="text-ash hover:text-white text-xs transition-colors"
           >
-            {msgOpen ? "Hide messages ↑" : "Message host ↓"}
+            {msgOpen ? `${t.bookingsHideMessages} ↑` : `${t.bookingsMessageHost} ↓`}
           </button>
           {msgOpen && (
             <div className="mt-2">

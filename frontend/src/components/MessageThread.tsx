@@ -1,6 +1,8 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api, MessageOut } from "@/lib/api";
+import { pickUIT } from "@/lib/ui";
 
 interface Props {
   bookingId: number;
@@ -16,6 +18,15 @@ interface Props {
 const POLL_MS = 20_000;
 
 export function MessageThread({ bookingId, viewerRole, counterpartyName }: Props) {
+  const search = useSearchParams();
+  const queryLang = search?.get("lang");
+  const [uiLang, setUiLang] = useState<string | null>(queryLang);
+  useEffect(() => {
+    if (uiLang) return;
+    if (typeof navigator !== "undefined" && navigator.language) setUiLang(navigator.language);
+  }, [uiLang]);
+  const t = useMemo(() => pickUIT(uiLang), [uiLang]);
+
   const [messages, setMessages] = useState<MessageOut[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -63,9 +74,9 @@ export function MessageThread({ bookingId, viewerRole, counterpartyName }: Props
     <div className="border border-border rounded-lg bg-card p-3 flex flex-col gap-3">
       <div className="max-h-72 overflow-y-auto flex flex-col gap-2 px-1">
         {!loaded ? (
-          <p className="text-ash text-xs">Loading…</p>
+          <p className="text-ash text-xs">…</p>
         ) : messages.length === 0 ? (
-          <p className="text-ash text-xs">No messages yet. Say hello!</p>
+          <p className="text-ash text-xs">{t.threadEmpty}</p>
         ) : (
           messages.map((m) => {
             const mine =
@@ -110,7 +121,7 @@ export function MessageThread({ bookingId, viewerRole, counterpartyName }: Props
               send();
             }
           }}
-          placeholder={counterpartyName ? `Message ${counterpartyName}…` : "Write a message…"}
+          placeholder={counterpartyName ? `${t.threadWritePlaceholder.replace("…", "")} ${counterpartyName}…` : t.threadWritePlaceholder}
           rows={2}
           maxLength={2000}
           className="input flex-1 text-sm"
@@ -120,13 +131,11 @@ export function MessageThread({ bookingId, viewerRole, counterpartyName }: Props
           disabled={sending || !draft.trim()}
           className="btn-volt text-sm px-4 self-end disabled:opacity-40"
         >
-          {sending ? "…" : "Send"}
+          {sending ? t.threadSending : t.threadSend}
         </button>
       </div>
       {error && <p className="text-red-400 text-xs">{error}</p>}
-      <p className="text-ash text-[10px]">
-        ChargedEV support can read this thread for dispute mediation. ⌘/Ctrl+Enter to send.
-      </p>
+      <p className="text-ash text-[10px]">{t.threadSupportNote}</p>
     </div>
   );
 }
