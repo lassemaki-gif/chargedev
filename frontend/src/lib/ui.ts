@@ -260,6 +260,52 @@ export interface UIT2 {
   sellerFailedStop: string;
   sellerFailedPayment: string;
   sellerFailedMarkComplete: string;
+
+  // Joining fee (Phase 2d)
+  joiningFeeTitle: string;
+  joiningFeeBody: string;
+  joiningFeePay: string;
+  joiningFeeRedirecting: string;
+
+  // Listing create / edit (Phase 2d)
+  listingCreateTitle: string;
+  listingCreateSubtitle: string;
+  listingEditTitle: string;
+  listingBack: string;
+  listingTitleLabel: string;
+  listingTitlePlaceholder: string;
+  listingDescLabel: string;
+  listingDescPlaceholder: string;
+  listingAddressLabel: string;
+  listingAddressPlaceholder: string;
+  listingAddressHint: string;
+  listingCityLabel: string;
+  listingCityPlaceholder: string;
+  listingCountryLabel: string;
+  listingChargerTypeLabel: string;
+  listingMaxPowerLabel: string;
+  listingPriceLabel: string;
+  listingEstimatedMonthly: string;
+  listingAccessInstructionsLabel: string;
+  listingAccessInstructionsPlaceholder: string;
+  listingAvailabilityLabel: string;
+  listingPublish: string;
+  listingCreating: string;
+  listingSaveChanges: string;
+  listingSaving: string;
+  listingCancel: string;
+  listingFailedGeneric: string;
+
+  // QR sticker page (Phase 2d)
+  qrBackDashboard: string;
+  qrPrint: string;
+  qrNotYoursTitle: string;
+  qrNotYoursBody: string;
+  qrChargerFallback: string;
+  qrGenerating: string;
+  qrScanToStartTitle: string;
+  qrScanBody: string;
+  qrPrintHint: string;
 }
 
 export const UI_LANG: Record<string, UIT> = {
@@ -1854,6 +1900,46 @@ const UI2_EN: UIT2 = {
   sellerFailedStop: "Failed to stop charging",
   sellerFailedPayment: "Failed to start payment",
   sellerFailedMarkComplete: "Failed to mark complete",
+  joiningFeeTitle: "Refundable €1 host verification",
+  joiningFeeBody: "A one-time €1 charge activates your host account and lets you create listings — it keeps bots and spam off the platform. We refund the €1 to the card you used after your first paid booking.",
+  joiningFeePay: "Pay refundable €1",
+  joiningFeeRedirecting: "Redirecting…",
+  listingCreateTitle: "List your charger",
+  listingCreateSubtitle: "Add your charging location. Buyers will find it in the marketplace.",
+  listingEditTitle: "Edit listing",
+  listingBack: "Back",
+  listingTitleLabel: "Listing title",
+  listingTitlePlaceholder: "e.g. Fast Type 2 charger in Kallio, Helsinki",
+  listingDescLabel: "Description (optional)",
+  listingDescPlaceholder: "Tell drivers what to expect — parking, access, etc.",
+  listingAddressLabel: "Street address",
+  listingAddressPlaceholder: "Mannerheimintie 1",
+  listingAddressHint: "Include the house number, e.g. Fastbölentie 12a",
+  listingCityLabel: "City",
+  listingCityPlaceholder: "Helsinki",
+  listingCountryLabel: "Country",
+  listingChargerTypeLabel: "Charger type",
+  listingMaxPowerLabel: "Max power (kW)",
+  listingPriceLabel: "Price per kWh (€, incl. 25.5% VAT)",
+  listingEstimatedMonthly: "Estimated monthly earnings (10 × 40 kWh sessions, 80% cut):",
+  listingAccessInstructionsLabel: "Access instructions",
+  listingAccessInstructionsPlaceholder: "e.g. Gate code is 1234. Press doorbell and I'll share the PIN.",
+  listingAvailabilityLabel: "Availability",
+  listingPublish: "Publish charger",
+  listingCreating: "Creating listing…",
+  listingSaveChanges: "Save changes",
+  listingSaving: "Saving…",
+  listingCancel: "Cancel",
+  listingFailedGeneric: "Something went wrong",
+  qrBackDashboard: "Back to dashboard",
+  qrPrint: "Print",
+  qrNotYoursTitle: "Not your listing",
+  qrNotYoursBody: "You can only print QR codes for chargers you host. Go back to the dashboard and open one of your own listings.",
+  qrChargerFallback: "Charger",
+  qrGenerating: "Generating…",
+  qrScanToStartTitle: "Scan to start charging",
+  qrScanBody: "Already paid? Scan to start.\nNew here? Scan to see available packages.",
+  qrPrintHint: "Print this sheet and stick it on the charger. Buyers scan it after booking to start their session; you scan it to charge your own car.",
 };
 
 // Each non-English entry supplies overrides; missing keys fall back to English.
@@ -2036,6 +2122,46 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     sellerFailedStop: "Latauksen pysäytys epäonnistui",
     sellerFailedPayment: "Maksun aloitus epäonnistui",
     sellerFailedMarkComplete: "Valmiiksi merkintä epäonnistui",
+    joiningFeeTitle: "Palautettava 1 € isäntävahvistus",
+    joiningFeeBody: "Kertaluonteinen 1 € veloitus aktivoi isäntätilisi ja mahdollistaa latauspisteiden julkaisemisen — se pitää botit ja roskaposti poissa alustalta. Palautamme 1 € käyttämällesi kortille ensimmäisen maksetun varauksen jälkeen.",
+    joiningFeePay: "Maksa palautettava 1 €",
+    joiningFeeRedirecting: "Ohjataan…",
+    listingCreateTitle: "Lisää latauspisteesi",
+    listingCreateSubtitle: "Lisää lataussijaintisi. Ostajat löytävät sen marketplacesta.",
+    listingEditTitle: "Muokkaa latauspistettä",
+    listingBack: "Takaisin",
+    listingTitleLabel: "Latauspisteen otsikko",
+    listingTitlePlaceholder: "esim. Nopea Type 2 -latauspiste Kalliossa, Helsingissä",
+    listingDescLabel: "Kuvaus (valinnainen)",
+    listingDescPlaceholder: "Kerro kuljettajille mitä odottaa — pysäköinti, pääsy jne.",
+    listingAddressLabel: "Katuosoite",
+    listingAddressPlaceholder: "Mannerheimintie 1",
+    listingAddressHint: "Sisällytä talon numero, esim. Fastbölentie 12a",
+    listingCityLabel: "Kaupunki",
+    listingCityPlaceholder: "Helsinki",
+    listingCountryLabel: "Maa",
+    listingChargerTypeLabel: "Latauspisteen tyyppi",
+    listingMaxPowerLabel: "Maksimiteho (kW)",
+    listingPriceLabel: "Hinta per kWh (€, sis. 25,5 % ALV)",
+    listingEstimatedMonthly: "Arvioidut kuukausiansiot (10 × 40 kWh latausta, 80 % osuus):",
+    listingAccessInstructionsLabel: "Pääsyohjeet",
+    listingAccessInstructionsPlaceholder: "esim. Portin koodi on 1234. Soita ovikelloa ja jaan PIN-koodin.",
+    listingAvailabilityLabel: "Saatavuus",
+    listingPublish: "Julkaise latauspiste",
+    listingCreating: "Luodaan latauspistettä…",
+    listingSaveChanges: "Tallenna muutokset",
+    listingSaving: "Tallennetaan…",
+    listingCancel: "Peruuta",
+    listingFailedGeneric: "Jotain meni pieleen",
+    qrBackDashboard: "Takaisin hallintaan",
+    qrPrint: "Tulosta",
+    qrNotYoursTitle: "Ei sinun latauspisteesi",
+    qrNotYoursBody: "Voit tulostaa QR-koodeja vain latauspisteille, joita isännöit. Palaa hallintaan ja avaa yksi omista listauksistasi.",
+    qrChargerFallback: "Latauspiste",
+    qrGenerating: "Luodaan…",
+    qrScanToStartTitle: "Skannaa aloittaaksesi lataus",
+    qrScanBody: "Jo maksettu? Skannaa aloittaaksesi.\nUusi täällä? Skannaa nähdäksesi saatavilla olevat paketit.",
+    qrPrintHint: "Tulosta tämä arkki ja kiinnitä latauspisteeseen. Ostajat skannaavat sen varauksen jälkeen aloittaakseen latauksen; sinä skannaat sen ladataksesi oman autosi.",
   },
   sv: {
     chargeListView: "Lista", chargeMapView: "Karta",

@@ -340,18 +340,14 @@ function SellerDashboardInner() {
         {/* Joining fee gate */}
         {earnings?.joining_fee_paid === false && (
           <div className="card border-volt/40 mb-8">
-            <h2 className="font-semibold text-white mb-1">Refundable €1 host verification</h2>
-            <p className="text-ash text-sm mb-4">
-              A one-time €1 charge activates your host account and lets you create listings — it
-              keeps bots and spam off the platform. We refund the €1 to the card you used after
-              your first paid booking.
-            </p>
+            <h2 className="font-semibold text-white mb-1">{t2.joiningFeeTitle}</h2>
+            <p className="text-ash text-sm mb-4">{t2.joiningFeeBody}</p>
             <button
               onClick={payFee}
               disabled={feeLoading}
               className="btn-volt text-sm px-6 disabled:opacity-40"
             >
-              {feeLoading ? "Redirecting…" : "Pay refundable €1"}
+              {feeLoading ? t2.joiningFeeRedirecting : t2.joiningFeePay}
             </button>
           </div>
         )}
