@@ -40,6 +40,7 @@ function NewListingInner() {
   });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [geocodeWarning, setGeocodeWarning] = useState<number | null>(null);
 
   const set = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -50,7 +51,13 @@ function NewListingInner() {
     try {
       const created = await api.createListing(form);
       await api.setAvailability(created.id, availability);
-      router.push("/sell/dashboard");
+      if (created.lat == null || created.lng == null) {
+        // Listing saved but Nominatim couldn't resolve the address — keep the
+        // host on the page so they can fix the spelling while context is fresh.
+        setGeocodeWarning(created.id);
+      } else {
+        router.push("/sell/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t.listingFailedGeneric);
     } finally {
@@ -69,6 +76,27 @@ function NewListingInner() {
         <p className="text-ash mb-8">{t.listingCreateSubtitle}</p>
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
+
+        {geocodeWarning != null && (
+          <div className="bg-yellow-900/20 border border-yellow-700/60 text-yellow-200 rounded-lg px-4 py-3 text-sm mb-6">
+            <div className="font-semibold mb-1">⚠️ {t.listingGeocodeWarningTitle}</div>
+            <p className="mb-3">{t.listingGeocodeWarningBody}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => router.push(`/sell/listing/${geocodeWarning}/edit`)}
+                className="btn-outline text-sm px-4 py-1.5"
+              >
+                {t.listingGeocodeWarningEditAddress}
+              </button>
+              <button
+                onClick={() => router.push("/sell/dashboard")}
+                className="btn-volt text-sm px-4 py-1.5"
+              >
+                {t.listingGeocodeWarningContinue}
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submit} className="space-y-5">
           <div>

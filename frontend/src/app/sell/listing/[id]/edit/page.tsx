@@ -43,6 +43,7 @@ function EditListingInner() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [geocodeWarning, setGeocodeWarning] = useState(false);
 
   useEffect(() => {
     api.listing(parseInt(id)).then((l) => {
@@ -69,11 +70,18 @@ function EditListingInner() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setGeocodeWarning(false);
     setLoading(true);
     try {
-      await api.updateListing(parseInt(id), form);
+      const updated = await api.updateListing(parseInt(id), form);
       await api.setAvailability(parseInt(id), availability);
-      router.push("/sell/dashboard");
+      if (updated.lat == null || updated.lng == null) {
+        // Backend attempted geocoding but Nominatim didn't resolve the
+        // address — keep the host on the page so they can fix the spelling.
+        setGeocodeWarning(true);
+      } else {
+        router.push("/sell/dashboard");
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t.listingFailedGeneric);
     } finally {
@@ -99,6 +107,29 @@ function EditListingInner() {
         <p className="text-ash text-sm mb-8 truncate">{listing?.title}</p>
 
         {error && <div className="bg-red-900/30 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm mb-6">{error}</div>}
+
+        {geocodeWarning && (
+          <div className="bg-yellow-900/20 border border-yellow-700/60 text-yellow-200 rounded-lg px-4 py-3 text-sm mb-6">
+            <div className="font-semibold mb-1">⚠️ {t.listingGeocodeWarningTitle}</div>
+            <p className="mb-3">{t.listingGeocodeWarningBody}</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGeocodeWarning(false)}
+                className="btn-outline text-sm px-4 py-1.5"
+              >
+                {t.listingGeocodeWarningEditAddress}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/sell/dashboard")}
+                className="btn-volt text-sm px-4 py-1.5"
+              >
+                {t.listingGeocodeWarningContinue}
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={submit} className="space-y-5">
           <div>

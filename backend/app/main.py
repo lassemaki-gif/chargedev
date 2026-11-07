@@ -1506,9 +1506,12 @@ async def update_listing(
     listing.max_power_kw = body.max_power_kw
     listing.price_per_kwh = body.price_per_kwh
     listing.instructions = body.instructions
-    # Invalidate geocode so it refreshes on next geocode run
-    listing.lat = None
-    listing.lng = None
+    # Attempt geocoding immediately (not on a later sweep) so the host hears
+    # about a typo in the city/street while they're still on the edit page —
+    # the response carries lat/lng as null and the UI shows a warning banner.
+    lat, lng = await geocode(body.address, body.city, body.country)
+    listing.lat = lat
+    listing.lng = lng
     await session.commit()
     return await listing_out(listing, current_user.full_name, session)
 

@@ -295,6 +295,10 @@ export interface UIT2 {
   listingSaving: string;
   listingCancel: string;
   listingFailedGeneric: string;
+  listingGeocodeWarningTitle: string;
+  listingGeocodeWarningBody: string;
+  listingGeocodeWarningContinue: string;
+  listingGeocodeWarningEditAddress: string;
 
   // QR sticker page (Phase 2d)
   qrBackDashboard: string;
@@ -1931,6 +1935,10 @@ const UI2_EN: UIT2 = {
   listingSaving: "Saving…",
   listingCancel: "Cancel",
   listingFailedGeneric: "Something went wrong",
+  listingGeocodeWarningTitle: "Address not found on the map",
+  listingGeocodeWarningBody: "We couldn't locate this address. Double-check the street and city spelling. Your listing is saved but won't appear on the map until the address resolves.",
+  listingGeocodeWarningContinue: "Continue to dashboard",
+  listingGeocodeWarningEditAddress: "Edit address",
   qrBackDashboard: "Back to dashboard",
   qrPrint: "Print",
   qrNotYoursTitle: "Not your listing",
@@ -2153,6 +2161,10 @@ const UI2_LANG: Record<string, Partial<UIT2>> = {
     listingSaving: "Tallennetaan…",
     listingCancel: "Peruuta",
     listingFailedGeneric: "Jotain meni pieleen",
+    listingGeocodeWarningTitle: "Osoitetta ei löytynyt kartalta",
+    listingGeocodeWarningBody: "Emme löytäneet tätä osoitetta. Tarkista kadun ja kaupungin oikeinkirjoitus. Latauspisteesi on tallennettu, mutta se ei näy kartalla ennen kuin osoite löytyy.",
+    listingGeocodeWarningContinue: "Jatka hallintaan",
+    listingGeocodeWarningEditAddress: "Muokkaa osoitetta",
     qrBackDashboard: "Takaisin hallintaan",
     qrPrint: "Tulosta",
     qrNotYoursTitle: "Ei sinun latauspisteesi",
