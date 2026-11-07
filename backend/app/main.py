@@ -2025,9 +2025,20 @@ async def create_joining_fee_payment(
             webhook_url=f"{settings.backend_url}/api/webhooks/sumup",
             customer_email=current_user.email,
         )
-    except Exception as exc:
-        logger.error("Joining fee checkout creation failed: %s", exc)
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "Joining fee checkout creation failed: user=%d ref=%s status=%s body=%s",
+            current_user.id, ref, exc.response.status_code, _scrub(exc.response.text),
+        )
         raise HTTPException(502, "Could not create payment. Please try again.")
+    except Exception as exc:
+        logger.error("Joining fee checkout creation failed: user=%d ref=%s err=%s",
+                     current_user.id, ref, exc)
+        raise HTTPException(502, "Could not create payment. Please try again.")
+    logger.info(
+        "Joining fee checkout created: user=%d ref=%s checkout_id=%s",
+        current_user.id, ref, checkout.get("checkout_id"),
+    )
     if not checkout.get("checkout_id") or not checkout.get("checkout_url"):
         raise HTTPException(502, "Payment provider returned an unexpected response.")
     return {"checkout_url": checkout["checkout_url"], "payment_id": checkout["checkout_id"]}
@@ -2369,6 +2380,36 @@ async def ocpp_unregister(
     return {"ok": True}
 
 
+def _summarise_sumup_result(result: dict) -> dict:
+    """Pull the diagnostic fields out of a SumUp verify_checkout result so we
+    can log a flat one-liner without dumping the entire payload. Returns only
+    what we need to understand why a checkout failed; no PANs, no CVVs — SumUp
+    doesn't return those, but the helper stays strict in case the API changes.
+    """
+    raw = result.get("raw") or {}
+    ref = raw.get("checkout_reference") or ""
+    status = (raw.get("status") or result.get("status") or "").upper()
+    # Each transaction attempt is appended to `transactions` by SumUp; a
+    # failed capture leaves a FAILED entry here with the decline detail.
+    txns = raw.get("transactions") or []
+    last_txn = txns[-1] if txns else {}
+    return {
+        "status": status,
+        "ref": ref,
+        "txn_count": len(txns),
+        "txn_status": (last_txn.get("status") or "").upper(),
+        "simple_status": (last_txn.get("simple_status") or "").upper(),
+        "payment_type": last_txn.get("payment_type"),
+        "auth_code": last_txn.get("auth_code"),
+        # SumUp sometimes surfaces an error_code / error_message on the
+        # checkout itself when the hosted page reports a decline. These are
+        # the fields support will ask about.
+        "error_code": raw.get("error_code"),
+        "error_message": raw.get("error_message"),
+        "status_description": raw.get("status_description"),
+    }
+
+
 @app.post("/api/webhooks/sumup")
 async def sumup_webhook(
     request: Request,
@@ -2387,10 +2428,13 @@ async def sumup_webhook(
     try:
         payload = await request.json()
     except Exception:
+        logger.warning("SumUp webhook: non-JSON body")
         return JSONResponse({"received": True})
 
     checkout_id = payload.get("id")
+    event_type = payload.get("event_type")
     if not checkout_id:
+        logger.warning("SumUp webhook: payload missing checkout id; event_type=%s", event_type)
         return JSONResponse({"received": True})
 
     try:
@@ -2399,7 +2443,30 @@ async def sumup_webhook(
         logger.error("SumUp webhook verify failed for %s: %s", checkout_id, exc)
         return JSONResponse({"received": True})
 
+    summary = _summarise_sumup_result(result)
+    # One line per webhook so grepping Railway logs for a checkout_id gives
+    # the full picture. Logged for both success and failure so we can trace
+    # the capture lifecycle without having to hunt in the SumUp dashboard.
+    logger.info(
+        "SumUp webhook: event=%s checkout_id=%s status=%s ref=%s "
+        "txns=%d txn_status=%s simple=%s payment_type=%s auth=%s "
+        "error_code=%s error_message=%s status_desc=%s",
+        event_type, checkout_id,
+        summary["status"], summary["ref"],
+        summary["txn_count"], summary["txn_status"], summary["simple_status"],
+        summary["payment_type"], summary["auth_code"],
+        summary["error_code"], summary["error_message"], summary["status_description"],
+    )
+
     if result.get("status") != "PAID":
+        # Explicit non-PAID branch — the one-line summary above already has
+        # the decline detail, but keep a marker log at WARNING level so the
+        # Railway log level filter catches it even if INFO is suppressed.
+        logger.warning(
+            "SumUp webhook: non-PAID status for checkout %s — status=%s txn_status=%s error=%s",
+            checkout_id, summary["status"], summary["txn_status"],
+            summary["error_code"] or summary["error_message"] or summary["status_description"] or "none",
+        )
         return JSONResponse({"received": True})
 
     ref = (result.get("raw") or {}).get("checkout_reference", "") or ""
