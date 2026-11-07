@@ -89,15 +89,29 @@ function SellerDashboardInner() {
   const [ocppSaving, setOcppSaving] = useState(false);
 
   useEffect(() => {
-    // Check if returning from joining fee payment
-    const paymentId = searchParams.get("joining_fee") || sessionStorage.getItem("joining_fee_payment_id");
-    if (paymentId) {
-      sessionStorage.removeItem("joining_fee_payment_id");
-      api.verifyJoiningFee(paymentId).catch(() => {}).finally(() => {
+    // Check if returning from joining fee payment. sessionStorage is the single
+    // source of truth for the SumUp checkout_id — the backend only stamps a
+    // return marker in the URL because SumUp fixes redirect_url at creation
+    // time, before the checkout_id is known.
+    const returning = searchParams.get("joining_fee_return") === "1" || searchParams.get("joining_fee");
+    const paymentId = sessionStorage.getItem("joining_fee_payment_id");
+    if (returning || paymentId) {
+      if (paymentId) {
+        sessionStorage.removeItem("joining_fee_payment_id");
+        api.verifyJoiningFee(paymentId).catch(() => {}).finally(() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("joining_fee_return");
+          url.searchParams.delete("joining_fee");
+          window.history.replaceState({}, "", url.toString());
+        });
+      } else {
+        // No local id but the user came back from SumUp — clean the URL and
+        // let the webhook flip joining_fee_paid; the refresh below will pick it up.
         const url = new URL(window.location.href);
+        url.searchParams.delete("joining_fee_return");
         url.searchParams.delete("joining_fee");
         window.history.replaceState({}, "", url.toString());
-      });
+      }
     }
     Promise.all([api.myListings(), api.sellerBookings(), api.sellerEarnings(), api.payoutAccount()])
       .then(([l, b, e, p]) => {

@@ -2016,7 +2016,12 @@ async def create_joining_fee_payment(
             checkout_reference=ref,
             amount_eur=Decimal("1.00"),
             description="ChargedEV host joining fee",
-            redirect_url=f"{settings.frontend_url}/sell/dashboard?joining_fee={current_user.id}",
+            # Just a return marker — the real checkout_id lives in the frontend's
+            # sessionStorage (set before redirect) because SumUp won't let us
+            # stamp the id into the redirect URL after creation. Passing user.id
+            # here was a leftover bug: the frontend read it as a payment_id and
+            # every verify call 502'd silently; the webhook saved the UX.
+            redirect_url=f"{settings.frontend_url}/sell/dashboard?joining_fee_return=1",
             webhook_url=f"{settings.backend_url}/api/webhooks/sumup",
             customer_email=current_user.email,
         )
